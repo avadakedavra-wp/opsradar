@@ -1,6 +1,6 @@
 module github.com/opsradar/k8s-ops-radar/api
 
-go 1.26.0
+go 1.23.0
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.75.0
