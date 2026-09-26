@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opsradar.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "opsradar.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "opsradar.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opsradar.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "opsradar.serviceAccountName" . }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.api.repository }}:{{ .Values.image.api.tag }}"
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: STORE_PATH
+              value: {{ .Values.env.storePath | quote }}
+            - name: PORT
+              value: {{ .Values.env.port | quote }}
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opsradar.fullname" . }}-secrets
+                  key: github-token
+            - name: GITHUB_REPO
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opsradar.fullname" . }}-secrets
+                  key: github-repo
+            - name: OPS_RADAR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opsradar.fullname" . }}-secrets
+                  key: api-key
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+        - name: dashboard
+          image: "{{ .Values.image.dashboard.repository }}:{{ .Values.image.dashboard.tag }}"
+          imagePullPolicy: {{ .Values.image.dashboard.pullPolicy }}
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "http://localhost:8080"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "opsradar.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

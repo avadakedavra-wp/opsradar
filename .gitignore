@@ -1,0 +1,11 @@
+.env
+*.db
+bin/
+apps/dashboard/.next/
+apps/dashboard/out/
+apps/dashboard/node_modules/
+apps/api/tmp/
+apps/api/web/dist/
+dist/
+*.log
+.DS_Store

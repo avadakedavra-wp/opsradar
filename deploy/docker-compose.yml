@@ -1,0 +1,33 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ~/.kube/config:/root/.kube/config:ro
+      - ops-radar-data:/data
+    environment:
+      - BOB_BIN=${BOB_BIN:-bob}
+      - STORE_PATH=/data/ops-radar.db
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - OPS_RADAR_API_KEY=${OPS_RADAR_API_KEY}
+      - PORT=8080
+    env_file:
+      - .env
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+    depends_on:
+      - api
+
+volumes:
+  ops-radar-data:

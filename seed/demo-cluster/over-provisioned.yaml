@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: over-provisioned-app
+  namespace: ops-radar-demo
+  labels:
+    app: over-provisioned-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: over-provisioned-app
+  template:
+    metadata:
+      labels:
+        app: over-provisioned-app
+    spec:
+      containers:
+        - name: web
+          image: nginx:latest        # ISSUE: unpinned image tag
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "4000m"           # ISSUE: 4 CPU cores requested — massively over-provisioned
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "2Gi"
+          # ISSUE: no livenessProbe
+          # ISSUE: no readinessProbe

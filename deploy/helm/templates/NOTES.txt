@@ -1,0 +1,10 @@
+OpsRadar has been deployed!
+
+API:       http://{{ include "opsradar.fullname" . }}-api.{{ .Release.Namespace }}:{{ .Values.service.api.port }}
+Dashboard: http://{{ include "opsradar.fullname" . }}-dashboard.{{ .Release.Namespace }}:{{ .Values.service.dashboard.port }}
+
+To port-forward locally:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "opsradar.fullname" . }}-api 8080:{{ .Values.service.api.port }}
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "opsradar.fullname" . }}-dashboard 3000:{{ .Values.service.dashboard.port }}
+
+Then open http://localhost:3000 in your browser.

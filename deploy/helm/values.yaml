@@ -1,0 +1,43 @@
+replicaCount: 1
+
+image:
+  api:
+    repository: opsradar-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  dashboard:
+    repository: opsradar-dashboard
+    tag: latest
+    pullPolicy: IfNotPresent
+
+service:
+  api:
+    type: ClusterIP
+    port: 8080
+  dashboard:
+    type: ClusterIP
+    port: 3000
+
+env:
+  storePath: /data/ops-radar.db
+  port: "8080"
+
+# Set secret values via --set or a values override file
+secrets:
+  githubToken: ""
+  githubRepo: ""
+  apiKey: ""
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+
+# RBAC scope: "cluster" (ClusterRole) or "namespace" (per-namespace Role)
+rbac:
+  scope: cluster
+  namespaces: []   # used only when scope=namespace
+
+serviceAccount:
+  create: true
+  name: ""

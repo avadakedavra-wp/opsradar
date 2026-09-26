@@ -1,0 +1,6 @@
+apiVersion: v2
+name: opsradar
+description: OpsRadar — Kubernetes operations intelligence powered by Bob
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
