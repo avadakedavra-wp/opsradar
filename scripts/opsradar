@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# opsradar — OpsRadar CLI launcher
+# Usage:
+#   opsradar start    → start API + dashboard at http://localhost:6689
+#   opsradar stop     → stop all OpsRadar processes
+#   opsradar status   → check if running
+#   opsradar logs     → tail live logs
+#   opsradar --version / -v
+
+set -euo pipefail
+
+# ── Config ────────────────────────────────────────────────────────────────────
+VERSION="__VERSION__"
+DASHBOARD_PORT=6689
+API_PORT=8080
+
+# Homebrew-installed dashboard lives at __DASHBOARD_DIR__ (replaced at install).
+# For dev / curl installs it's next to this script or in ~/.opsradar/dashboard/.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+DASHBOARD_DIR="${OPSRADAR_DASHBOARD_DIR:-__DASHBOARD_DIR__}"
+# Fallback for non-Homebrew installs
+if [ ! -d "$DASHBOARD_DIR" ]; then
+  DASHBOARD_DIR="${SCRIPT_DIR}/../dashboard"
+fi
+if [ ! -d "$DASHBOARD_DIR" ]; then
+  DASHBOARD_DIR="${HOME}/.opsradar/dashboard"
+fi
+
+API_BIN="${SCRIPT_DIR}/opsradar-api"
+LOG_DIR="${HOME}/.opsradar/logs"
+PID_DIR="${HOME}/.opsradar/run"
+ENV_FILE="${HOME}/.opsradar/.env"
+
+mkdir -p "$LOG_DIR" "$PID_DIR"
+
+API_PID_FILE="${PID_DIR}/api.pid"
+DASH_PID_FILE="${PID_DIR}/dashboard.pid"
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+_green()  { printf "\033[32m%s\033[0m\n" "$*"; }
+_yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
+_red()    { printf "\033[31m%s\033[0m\n" "$*"; }
+_bold()   { printf "\033[1m%s\033[0m\n"  "$*"; }
+
+_is_running() {
+  local pid_file="$1"
+  [ -f "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null
+}
+
+_open_browser() {
+  local url="$1"
+  if command -v open &>/dev/null; then
+    open "$url"                        # macOS
+  elif command -v xdg-open &>/dev/null; then
+    xdg-open "$url" &>/dev/null &     # Linux
+  fi
+}
+
+_wait_ready() {
+  local url="$1" label="$2" retries="${3:-30}"
+  local i=0
+  while [ $i -lt $retries ]; do
+    if curl -sf "$url" &>/dev/null; then
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  _yellow "⚠ $label didn't respond within ${retries}s — check logs: opsradar logs"
+  return 1
+}
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+cmd_start() {
+  _bold "🚀 Starting OpsRadar ${VERSION}..."
+
+  # Load .env if present
+  if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    set -a; source "$ENV_FILE"; set +a
+    echo "   ✓ Loaded env from $ENV_FILE"
+  fi
+
+  # ── API ──────────────────────────────────────────────────────────
+  if _is_running "$API_PID_FILE"; then
+    _yellow "   ↩ API already running (PID $(cat "$API_PID_FILE"))"
+  else
+    if [ ! -x "$API_BIN" ]; then
+      _red "✗ opsradar-api not found at $API_BIN"
+      exit 1
+    fi
+    PORT=$API_PORT \
+      "$API_BIN" >> "${LOG_DIR}/api.log" 2>&1 &
+    echo $! > "$API_PID_FILE"
+    echo "   ✓ API started (PID $!)"
+  fi
+
+  # ── Dashboard ────────────────────────────────────────────────────
+  if _is_running "$DASH_PID_FILE"; then
+    _yellow "   ↩ Dashboard already running (PID $(cat "$DASH_PID_FILE"))"
+  else
+    if [ ! -d "$DASHBOARD_DIR" ]; then
+      _red "✗ Dashboard not found at $DASHBOARD_DIR"
+      _yellow "  Hint: set OPSRADAR_DASHBOARD_DIR or reinstall via Homebrew / install.sh"
+      exit 1
+    fi
+
+    if ! command -v node &>/dev/null; then
+      _red "✗ node not found — install Node.js 18+ to run the dashboard"
+      exit 1
+    fi
+
+    # Use Next.js standalone server (no npm install needed at runtime)
+    STANDALONE_SERVER="${DASHBOARD_DIR}/server.js"
+    if [ ! -f "$STANDALONE_SERVER" ]; then
+      _red "✗ Dashboard server not found at $STANDALONE_SERVER"
+      _yellow "  Hint: reinstall via Homebrew / install.sh"
+      exit 1
+    fi
+
+    PORT=$DASHBOARD_PORT \
+      HOSTNAME=127.0.0.1 \
+      node "$STANDALONE_SERVER" \
+        >> "${LOG_DIR}/dashboard.log" 2>&1 &
+    echo $! > "$DASH_PID_FILE"
+    echo "   ✓ Dashboard started (PID $!)"
+  fi
+
+  # ── Wait & open ──────────────────────────────────────────────────
+  printf "   ⏳ Waiting for API ..."
+  _wait_ready "http://localhost:${API_PORT}/health" "API" && echo " ready."
+
+  printf "   ⏳ Waiting for Dashboard ..."
+  _wait_ready "http://localhost:${DASHBOARD_PORT}" "Dashboard" 60 && echo " ready."
+
+  echo ""
+  _green "✅ OpsRadar is running!"
+  _green "   Dashboard → http://localhost:${DASHBOARD_PORT}"
+  _green "   API       → http://localhost:${API_PORT}"
+  echo ""
+  echo "   Logs: opsradar logs"
+  echo "   Stop: opsradar stop"
+  echo ""
+
+  _open_browser "http://localhost:${DASHBOARD_PORT}"
+}
+
+cmd_stop() {
+  _bold "🛑 Stopping OpsRadar..."
+  local stopped=0
+
+  for pid_file in "$API_PID_FILE" "$DASH_PID_FILE"; do
+    if _is_running "$pid_file"; then
+      local pid label
+      pid=$(cat "$pid_file")
+      label=$(basename "$pid_file" .pid)
+      kill "$pid" 2>/dev/null && _green "   ✓ Stopped $label (PID $pid)"
+      rm -f "$pid_file"
+      stopped=$((stopped + 1))
+    fi
+  done
+
+  # Also kill any orphaned next / opsradar-api processes
+  pkill -f "opsradar-api" 2>/dev/null || true
+  pkill -f "next start.*${DASHBOARD_PORT}" 2>/dev/null || true
+
+  [ $stopped -eq 0 ] && _yellow "   Nothing was running."
+}
+
+cmd_status() {
+  _bold "📡 OpsRadar status"
+  echo ""
+
+  local api_ok=false dash_ok=false
+
+  if _is_running "$API_PID_FILE"; then
+    _green "   API       → running (PID $(cat "$API_PID_FILE"))  http://localhost:${API_PORT}"
+    api_ok=true
+  else
+    _red "   API       → stopped"
+  fi
+
+  if _is_running "$DASH_PID_FILE"; then
+    _green "   Dashboard → running (PID $(cat "$DASH_PID_FILE"))  http://localhost:${DASHBOARD_PORT}"
+    dash_ok=true
+  else
+    _red "   Dashboard → stopped"
+  fi
+
+  echo ""
+  $api_ok && $dash_ok && exit 0
+  exit 1
+}
+
+cmd_logs() {
+  local service="${1:-}"
+  _bold "📋 OpsRadar logs (Ctrl-C to stop)"
+  echo ""
+  case "$service" in
+    api)       tail -f "${LOG_DIR}/api.log" ;;
+    dashboard) tail -f "${LOG_DIR}/dashboard.log" ;;
+    *)         tail -f "${LOG_DIR}/api.log" "${LOG_DIR}/dashboard.log" ;;
+  esac
+}
+
+cmd_version() {
+  echo "opsradar ${VERSION}"
+}
+
+cmd_help() {
+  cat <<EOF
+$(_bold "OpsRadar ${VERSION}") — Kubernetes ops intelligence dashboard
+
+Usage:
+  opsradar <command> [options]
+
+Commands:
+  start         Start the API and dashboard (opens http://localhost:${DASHBOARD_PORT})
+  stop          Stop all OpsRadar processes
+  status        Show running status
+  logs [api|dashboard]  Tail logs (default: both)
+  --version, -v         Print version
+
+Environment (optional, place in ~/.opsradar/.env):
+  ANTHROPIC_API_KEY     Enable Claude-powered analysis
+  GITHUB_TOKEN          For PR generation
+  GITHUB_REPO           e.g. owner/repo
+  OPS_RADAR_API_KEY     Secure the API (recommended in shared envs)
+  KUBECONFIG            Path to kubeconfig (defaults to ~/.kube/config)
+
+EOF
+}
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+CMD="${1:-help}"
+shift || true
+
+case "$CMD" in
+  start)          cmd_start "$@" ;;
+  stop)           cmd_stop "$@" ;;
+  status)         cmd_status "$@" ;;
+  logs)           cmd_logs "$@" ;;
+  --version|-v)   cmd_version ;;
+  help|--help|-h) cmd_help ;;
+  *)
+    _red "Unknown command: $CMD"
+    echo ""
+    cmd_help
+    exit 1
+    ;;
+esac

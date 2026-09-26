@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  go-lint-test:
+    name: Go — lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Vet
+        working-directory: apps/api
+        run: go vet ./...
+
+      - name: Test
+        working-directory: apps/api
+        run: go test ./...
+
+      - name: Build (smoke check)
+        working-directory: apps/api
+        env:
+          CGO_ENABLED: 0
+        run: go build -o /dev/null ./...
+
+  dashboard-lint:
+    name: Dashboard — lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - name: Install
+        working-directory: apps/dashboard
+        run: npm ci
+
+      - name: Lint
+        working-directory: apps/dashboard
+        run: npm run lint
+
+      - name: Build
+        working-directory: apps/dashboard
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8080
+        run: npm run build

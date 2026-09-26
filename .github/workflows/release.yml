@@ -1,0 +1,280 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ─── 1. Build Go API binaries for all platforms ─────────────────────────────
+  build-api:
+    name: Build API (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Build API binary
+        working-directory: apps/api
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o ../../dist/opsradar-api-${{ matrix.suffix }} ./...
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-${{ matrix.suffix }}
+          path: dist/opsradar-api-${{ matrix.suffix }}
+
+  # ─── 2. Build Next.js dashboard (static export) ─────────────────────────────
+  build-dashboard:
+    name: Build Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - name: Install & build
+        working-directory: apps/dashboard
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8080
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package dashboard (standalone)
+        working-directory: apps/dashboard
+        run: |
+          mkdir -p ../../dist
+          # Copy static assets into standalone dir (Next.js doesn't do this automatically)
+          cp -r .next/static  .next/standalone/.next/static
+          cp -r public        .next/standalone/public
+          tar -czf ../../dist/dashboard.tar.gz -C .next/standalone .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard
+          path: dist/dashboard.tar.gz
+
+  # ─── 3. Bundle CLI wrapper + create release archives ────────────────────────
+  release:
+    name: Create Release
+    needs: [build-api, build-dashboard]
+    runs-on: ubuntu-latest
+    outputs:
+      darwin_amd64_sha256: ${{ steps.sha.outputs.darwin_amd64 }}
+      darwin_arm64_sha256: ${{ steps.sha.outputs.darwin_arm64 }}
+      linux_amd64_sha256: ${{ steps.sha.outputs.linux_amd64 }}
+      linux_arm64_sha256: ${{ steps.sha.outputs.linux_arm64 }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      # Flatten artifact sub-dirs produced by upload-artifact v4
+      - name: Flatten dist/
+        run: |
+          find dist -mindepth 2 -type f -exec mv {} dist/ \;
+          rm -rf dist/api-* dist/dashboard
+
+      - name: Build release tarballs
+        run: |
+          VERSION=${{ github.ref_name }}
+
+          for PLATFORM in darwin-amd64 darwin-arm64 linux-amd64 linux-arm64; do
+            DIR="opsradar-${VERSION}-${PLATFORM}"
+            mkdir -p "release/${DIR}/bin"
+
+            # API binary
+            cp "dist/opsradar-api-${PLATFORM}" "release/${DIR}/bin/opsradar-api"
+            chmod +x "release/${DIR}/bin/opsradar-api"
+
+            # CLI wrapper
+            cp scripts/opsradar "release/${DIR}/bin/opsradar"
+            chmod +x "release/${DIR}/bin/opsradar"
+
+            # Dashboard bundle
+            cp dist/dashboard.tar.gz "release/${DIR}/dashboard.tar.gz"
+
+            # Metadata
+            cat > "release/${DIR}/VERSION" <<EOF
+          version=${VERSION}
+          platform=${PLATFORM}
+          EOF
+
+            # Create tarball
+            tar -czf "release/${DIR}.tar.gz" -C release "${DIR}"
+          done
+
+      - name: Compute SHA-256 checksums
+        id: sha
+        run: |
+          for PLATFORM in darwin-amd64 darwin-arm64 linux-amd64 linux-arm64; do
+            FILE="release/opsradar-${{ github.ref_name }}-${PLATFORM}.tar.gz"
+            SHA=$(sha256sum "${FILE}" | awk '{print $1}')
+            SAFE_PLATFORM=$(echo "${PLATFORM}" | tr '-' '_')
+            echo "${SAFE_PLATFORM}=${SHA}" >> "$GITHUB_OUTPUT"
+            echo "${SHA}  opsradar-${{ github.ref_name }}-${PLATFORM}.tar.gz" >> release/checksums.txt
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OpsRadar ${{ github.ref_name }}
+          body: |
+            ## OpsRadar ${{ github.ref_name }}
+
+            ### Install via Homebrew
+            ```bash
+            brew tap iamkiwi-dev/opsradar
+            brew install opsradar
+            ```
+
+            ### Install via curl (macOS / Linux)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/iamkiwi-dev/opsradar/main/scripts/install.sh | bash
+            ```
+
+            ### Usage
+            ```bash
+            opsradar start      # starts the app → opens http://localhost:6689
+            opsradar stop       # stops all OpsRadar processes
+            opsradar status     # check if running
+            opsradar logs       # tail live logs
+            ```
+
+            **SHA-256 Checksums**
+            ```
+            ${{ steps.sha.outputs.darwin_amd64 }}  opsradar-${{ github.ref_name }}-darwin-amd64.tar.gz
+            ${{ steps.sha.outputs.darwin_arm64 }}  opsradar-${{ github.ref_name }}-darwin-arm64.tar.gz
+            ${{ steps.sha.outputs.linux_amd64 }}   opsradar-${{ github.ref_name }}-linux-amd64.tar.gz
+            ${{ steps.sha.outputs.linux_arm64 }}   opsradar-${{ github.ref_name }}-linux-arm64.tar.gz
+            ```
+          files: |
+            release/*.tar.gz
+            release/checksums.txt
+
+  # ─── 4. Bump Homebrew formula in homebrew-opsradar tap repo ─────────────────
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: iamkiwi-dev/homebrew-opsradar
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula
+        run: |
+          VERSION=${{ github.ref_name }}
+          AMD64_SHA=${{ needs.release.outputs.darwin_amd64_sha256 }}
+          ARM64_SHA=${{ needs.release.outputs.darwin_arm64_sha256 }}
+          LINUX_AMD64_SHA=${{ needs.release.outputs.linux_amd64_sha256 }}
+          LINUX_ARM64_SHA=${{ needs.release.outputs.linux_arm64_sha256 }}
+
+          cat > homebrew-tap/Formula/opsradar.rb <<EOF
+          class Opsradar < Formula
+            desc "OpsRadar — Kubernetes ops intelligence dashboard"
+            homepage "https://github.com/iamkiwi-dev/opsradar"
+            version "${VERSION#v}"
+            license "MIT"
+
+            on_macos do
+              on_intel do
+                url "https://github.com/iamkiwi-dev/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-darwin-amd64.tar.gz"
+                sha256 "${AMD64_SHA}"
+              end
+              on_arm do
+                url "https://github.com/iamkiwi-dev/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-darwin-arm64.tar.gz"
+                sha256 "${ARM64_SHA}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/iamkiwi-dev/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-linux-amd64.tar.gz"
+                sha256 "${LINUX_AMD64_SHA}"
+              end
+              on_arm do
+                url "https://github.com/iamkiwi-dev/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-linux-arm64.tar.gz"
+                sha256 "${LINUX_ARM64_SHA}"
+              end
+            end
+
+            depends_on "node" => :recommended
+
+            def install
+              bin.install "bin/opsradar"
+              bin.install "bin/opsradar-api"
+              # Install bundled dashboard
+              libexec.mkpath
+              system "tar", "-xzf", "dashboard.tar.gz", "-C", libexec.to_s
+              # Bake the dashboard path into the wrapper
+              inreplace bin/"opsradar", "__DASHBOARD_DIR__", libexec.to_s
+            end
+
+            def caveats
+              <<~EOS
+                Start OpsRadar with:
+                  opsradar start
+
+                Then open http://localhost:6689 in your browser.
+
+                Optional environment variables (set in ~/.opsradar/.env):
+                  ANTHROPIC_API_KEY=...
+                  GITHUB_TOKEN=...
+                  GITHUB_REPO=owner/repo
+              EOS
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/opsradar --version")
+            end
+          end
+          EOF
+
+      - name: Commit and push formula
+        working-directory: homebrew-tap
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/opsradar.rb
+          git commit -m "chore: bump opsradar to ${{ github.ref_name }}"
+          git push
