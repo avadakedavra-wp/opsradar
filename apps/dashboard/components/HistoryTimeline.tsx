@@ -1,6 +1,6 @@
 "use client";
 
-import { Scan } from "@/lib/api";
+import { Scan, scanStatusMeta } from "@/lib/api";
 import Link from "next/link";
 
 interface Props {
@@ -36,6 +36,7 @@ export default function HistoryTimeline({ scans }: Props) {
       {scans.map((scan) => {
         const sev = worstSeverity(scan);
         const total = scan.critical + scan.high + scan.medium + scan.low;
+        const statusMeta = scanStatusMeta(scan.status);
         return (
           <div key={scan.id} className="relative">
             <span
@@ -46,8 +47,11 @@ export default function HistoryTimeline({ scans }: Props) {
                 <p className="text-sm font-medium">
                   {scan.cluster_name} — {new Date(scan.started_at).toLocaleString()}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Status: <span className={scan.status === "completed" ? "text-green-600" : "text-gray-400"}>{scan.status}</span>
+                <p className="text-xs text-gray-500 mt-0.5" title={scan.error_summary}>
+                  Status: <span className={`font-medium ${statusMeta.textClass}`}>{statusMeta.label}</span>
+                  {scan.failed_tasks > 0 && (
+                    <span className="text-red-500 ml-1">({scan.failed_tasks}/{scan.total_tasks} tasks failed)</span>
+                  )}
                   {" · "}
                   {total} finding{total !== 1 ? "s" : ""}
                   {scan.critical > 0 && <span className="text-red-500 ml-1">({scan.critical} critical)</span>}

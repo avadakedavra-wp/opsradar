@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getRadar, listScans, startScan, Scan, RadarRow } from "@/lib/api";
+import { getRadar, listScans, startScan, scanStatusMeta, Scan, RadarRow } from "@/lib/api";
 import RadarHeatmap from "@/components/RadarHeatmap";
 import Link from "next/link";
 
@@ -78,25 +78,28 @@ export default function HomePage() {
           <p className="text-sm text-gray-400">No scans yet. Click &ldquo;Scan Now&rdquo; to start.</p>
         ) : (
           <div className="space-y-2">
-            {scans.slice(0, 5).map((scan) => (
-              <Link
-                key={scan.id}
-                href={`/scan/${scan.id}`}
-                className="flex items-center justify-between border rounded-lg px-4 py-3 hover:bg-gray-50"
-              >
-                <div>
-                  <span className="font-medium text-sm">{scan.cluster_name}</span>
-                  <span className="text-xs text-gray-400 ml-2">{new Date(scan.started_at).toLocaleString()}</span>
-                </div>
-                <div className="flex gap-2 text-xs items-center">
-                  {scan.critical > 0 && <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{scan.critical} critical</span>}
-                  {scan.high > 0 && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{scan.high} high</span>}
-                  <span className={`px-2 py-0.5 rounded-full ${scan.status === "completed" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-                    {scan.status}
-                  </span>
-                </div>
-              </Link>
-            ))}
+            {scans.slice(0, 5).map((scan) => {
+              const statusMeta = scanStatusMeta(scan.status);
+              return (
+                <Link
+                  key={scan.id}
+                  href={`/scan/${scan.id}`}
+                  className="flex items-center justify-between border rounded-lg px-4 py-3 hover:bg-gray-50"
+                >
+                  <div>
+                    <span className="font-medium text-sm">{scan.cluster_name}</span>
+                    <span className="text-xs text-gray-400 ml-2">{new Date(scan.started_at).toLocaleString()}</span>
+                  </div>
+                  <div className="flex gap-2 text-xs items-center">
+                    {scan.critical > 0 && <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{scan.critical} critical</span>}
+                    {scan.high > 0 && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{scan.high} high</span>}
+                    <span className={`px-2 py-0.5 rounded-full ${statusMeta.badgeClass}`} title={scan.error_summary}>
+                      {statusMeta.label}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>

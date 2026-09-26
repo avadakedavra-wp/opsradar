@@ -12,11 +12,36 @@ export interface Scan {
   cluster_name: string;
   started_at: string;
   finished_at?: string;
+  // "running" | "completed" | "completed_with_errors" | "failed" — see
+  // scanStatusMeta below. Never trust "completed" alone to mean success;
+  // check failed_tasks too (it's always 0 when status is "completed").
   status: string;
+  failed_tasks: number;
+  total_tasks: number;
+  error_summary?: string;
   critical: number;
   high: number;
   medium: number;
   low: number;
+}
+
+// Shared status → display mapping so every view (home, history, timeline)
+// renders the same honest distinction between a clean run, a partial
+// failure, and a total failure, instead of just "completed" vs everything
+// else in gray.
+export function scanStatusMeta(status: string): { label: string; badgeClass: string; textClass: string; dotClass: string } {
+  switch (status) {
+    case "completed":
+      return { label: "completed", badgeClass: "bg-green-100 text-green-700", textClass: "text-green-600", dotClass: "bg-green-500" };
+    case "completed_with_errors":
+      return { label: "completed with errors", badgeClass: "bg-amber-100 text-amber-700", textClass: "text-amber-600", dotClass: "bg-amber-500" };
+    case "failed":
+      return { label: "failed", badgeClass: "bg-red-100 text-red-700", textClass: "text-red-600", dotClass: "bg-red-500" };
+    case "running":
+      return { label: "running", badgeClass: "bg-blue-100 text-blue-700", textClass: "text-blue-600", dotClass: "bg-blue-500" };
+    default:
+      return { label: status, badgeClass: "bg-gray-100 text-gray-500", textClass: "text-gray-400", dotClass: "bg-gray-400" };
+  }
 }
 
 export interface Finding {
@@ -54,13 +79,20 @@ export interface ProgressEvent {
   done?: boolean;
 }
 
-export async function startScan(clusterName = "default-cluster", namespace = ""): Promise<{ scan_id: string }> {
+export async function startScan(
+  clusterName = "default-cluster",
+  namespace = "",
+  contextName = "" // empty = every loaded kubeconfig context
+): Promise<{ scan_id: string }> {
   const res = await fetch(`${API_URL}/scan`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ cluster_name: clusterName, namespace }),
+    body: JSON.stringify({ cluster_name: clusterName, namespace, context_name: contextName }),
   });
-  if (!res.ok) throw new Error(`POST /scan ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `POST /scan ${res.status}`);
+  }
   return res.json();
 }
 
@@ -96,8 +128,12 @@ export async function generatePR(findingId: string): Promise<{ pr_url: string }>
 }
 
 export async function resolveFinding(findingId: string): Promise<void> {
-  const res = await fetch(`${API_URL}/findings/${findingId}/resolve`, { headers: headers() });
-  if (!res.ok) throw new Error(`GET /findings/resolve ${res.status}`);
+  // POST, not GET — resolving mutates state and must not be a safe/cacheable verb.
+  const res = await fetch(`${API_URL}/findings/${findingId}/resolve`, {
+    method: "POST",
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error(`POST /findings/resolve ${res.status}`);
 }
 
 export async function listContainers(): Promise<Container[]> {
