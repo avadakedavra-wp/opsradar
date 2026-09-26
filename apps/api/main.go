@@ -62,12 +62,7 @@ func main() {
 		cancel()
 	}
 
-	// Bob Agent Backend
-	bobBin := getEnv("BOB_BIN", "bob")
-	agentBackend := agent.NewBobBackend(bobBin)
-	if err := agentBackend.Ready(); err != nil {
-		log.Printf("warning: %v — scans will fail until this is fixed", err)
-	}
+	agentBackend := selectAgentBackend()
 
 	// PR Generator
 	prGen := pr.NewGenerator(
@@ -129,6 +124,49 @@ func main() {
 	}
 
 	_ = app.Shutdown()
+}
+
+// selectAgentBackend picks the AI backend for scan analysis:
+//
+//   - AGENT_BACKEND=claude forces the Claude API backend.
+//   - AGENT_BACKEND=bob forces the bob-CLI backend.
+//   - AGENT_BACKEND unset/"auto" (default): use Claude if credentials are
+//     available, since it's a real, working LLM call with no external
+//     dependency; fall back to bob (e.g. for anyone who does have the real
+//     `bob` binary — this project's Dockerfile has no working install
+//     source for it, so BobBackend can't produce real findings here today).
+func selectAgentBackend() agent.Backend {
+	bobBin := getEnv("BOB_BIN", "bob")
+	bobBackend := agent.NewBobBackend(bobBin)
+	claudeBackend := agent.NewClaudeBackend(os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("ANTHROPIC_MODEL"))
+
+	switch getEnv("AGENT_BACKEND", "auto") {
+	case "claude":
+		if err := claudeBackend.Ready(); err != nil {
+			log.Printf("warning: AGENT_BACKEND=claude but %v — scans will fail until this is fixed", err)
+		} else {
+			log.Printf("agent backend: Claude API (forced via AGENT_BACKEND)")
+		}
+		return claudeBackend
+	case "bob":
+		if err := bobBackend.Ready(); err != nil {
+			log.Printf("warning: AGENT_BACKEND=bob but %v — scans will fail until this is fixed", err)
+		} else {
+			log.Printf("agent backend: bob CLI (forced via AGENT_BACKEND)")
+		}
+		return bobBackend
+	default: // "auto"
+		if err := claudeBackend.Ready(); err == nil {
+			log.Printf("agent backend: Claude API")
+			return claudeBackend
+		}
+		if err := bobBackend.Ready(); err == nil {
+			log.Printf("agent backend: bob CLI")
+			return bobBackend
+		}
+		log.Printf("warning: no agent backend available (no ANTHROPIC_API_KEY and no bob binary on PATH) — scans will fail until one is configured")
+		return claudeBackend // still returned so /scan's Ready() check gives a specific, actionable error
+	}
 }
 
 // defaultStorePath returns ~/.opsradar/ops-radar.db, creating the directory
