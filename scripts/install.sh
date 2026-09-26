@@ -2,14 +2,14 @@
 # install.sh — OpsRadar one-line installer
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/iamkiwi-dev/opsradar/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/avadakedavra-wp/opsradar/main/scripts/install.sh | bash
 #
 # Or with a specific version:
-#   curl -fsSL https://raw.githubusercontent.com/iamkiwi-dev/opsradar/main/scripts/install.sh | bash -s -- --version v1.2.0
+#   curl -fsSL https://raw.githubusercontent.com/avadakedavra-wp/opsradar/main/scripts/install.sh | bash -s -- --version v1.2.0
 
 set -euo pipefail
 
-REPO="iamkiwi-dev/opsradar"
+REPO="avadakedavra-wp/opsradar"
 INSTALL_DIR="${OPSRADAR_INSTALL_DIR:-${HOME}/.opsradar}"
 BIN_DIR="${OPSRADAR_BIN_DIR:-${HOME}/.local/bin}"
 

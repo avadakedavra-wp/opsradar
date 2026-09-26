@@ -1,28 +1,28 @@
 class Opsradar < Formula
   desc "OpsRadar — Kubernetes ops intelligence dashboard with AI analysis"
-  homepage "https://github.com/iamkiwi-dev/opsradar"
+  homepage "https://github.com/avadakedavra-wp/opsradar"
   version "0.1.0"
   license "MIT"
 
   # Populated automatically by the release GitHub Action
   on_macos do
     on_intel do
-      url "https://github.com/iamkiwi-dev/opsradar/releases/download/v0.1.0/opsradar-v0.1.0-darwin-amd64.tar.gz"
+      url "https://github.com/avadakedavra-wp/opsradar/releases/download/v0.1.0/opsradar-v0.1.0-darwin-amd64.tar.gz"
       sha256 "PLACEHOLDER_AMD64_SHA256"
     end
     on_arm do
-      url "https://github.com/iamkiwi-dev/opsradar/releases/download/v0.1.0/opsradar-v0.1.0-darwin-arm64.tar.gz"
+      url "https://github.com/avadakedavra-wp/opsradar/releases/download/v0.1.0/opsradar-v0.1.0-darwin-arm64.tar.gz"
       sha256 "PLACEHOLDER_ARM64_SHA256"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/iamkiwi-dev/opsradar/releases/download/v0.1.0/opsradar-v0.1.0-linux-amd64.tar.gz"
+      url "https://github.com/avadakedavra-wp/opsradar/releases/download/v0.1.0/opsradar-v0.1.0-linux-amd64.tar.gz"
       sha256 "PLACEHOLDER_LINUX_AMD64_SHA256"
     end
     on_arm do
-      url "https://github.com/iamkiwi-dev/opsradar/releases/download/v0.1.0/opsradar-v0.1.0-linux-arm64.tar.gz"
+      url "https://github.com/avadakedavra-wp/opsradar/releases/download/v0.1.0/opsradar-v0.1.0-linux-arm64.tar.gz"
       sha256 "PLACEHOLDER_LINUX_ARM64_SHA256"
     end
   end

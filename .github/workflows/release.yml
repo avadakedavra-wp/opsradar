@@ -160,13 +160,13 @@ jobs:
 
             ### Install via Homebrew
             ```bash
-            brew tap iamkiwi-dev/opsradar
+            brew tap avadakedavra-wp/opsradar
             brew install opsradar
             ```
 
             ### Install via curl (macOS / Linux)
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/iamkiwi-dev/opsradar/main/scripts/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/avadakedavra-wp/opsradar/main/scripts/install.sh | bash
             ```
 
             ### Usage
@@ -197,7 +197,7 @@ jobs:
       - name: Checkout homebrew tap
         uses: actions/checkout@v4
         with:
-          repository: iamkiwi-dev/homebrew-opsradar
+          repository: avadakedavra-wp/homebrew-opsradar
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
@@ -212,28 +212,28 @@ jobs:
           cat > homebrew-tap/Formula/opsradar.rb <<EOF
           class Opsradar < Formula
             desc "OpsRadar — Kubernetes ops intelligence dashboard"
-            homepage "https://github.com/iamkiwi-dev/opsradar"
+            homepage "https://github.com/avadakedavra-wp/opsradar"
             version "${VERSION#v}"
             license "MIT"
 
             on_macos do
               on_intel do
-                url "https://github.com/iamkiwi-dev/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-darwin-amd64.tar.gz"
+                url "https://github.com/avadakedavra-wp/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-darwin-amd64.tar.gz"
                 sha256 "${AMD64_SHA}"
               end
               on_arm do
-                url "https://github.com/iamkiwi-dev/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-darwin-arm64.tar.gz"
+                url "https://github.com/avadakedavra-wp/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-darwin-arm64.tar.gz"
                 sha256 "${ARM64_SHA}"
               end
             end
 
             on_linux do
               on_intel do
-                url "https://github.com/iamkiwi-dev/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-linux-amd64.tar.gz"
+                url "https://github.com/avadakedavra-wp/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-linux-amd64.tar.gz"
                 sha256 "${LINUX_AMD64_SHA}"
               end
               on_arm do
-                url "https://github.com/iamkiwi-dev/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-linux-arm64.tar.gz"
+                url "https://github.com/avadakedavra-wp/opsradar/releases/download/${VERSION}/opsradar-${VERSION}-linux-arm64.tar.gz"
                 sha256 "${LINUX_ARM64_SHA}"
               end
             end
