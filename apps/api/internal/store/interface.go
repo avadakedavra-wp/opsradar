@@ -17,6 +17,7 @@ type Store interface {
 
 	// ScanTargets
 	CreateScanTarget(t ScanTarget) error
+	GetScanTargetByID(id string) (ScanTarget, error)
 
 	// Findings
 	CreateFinding(f Finding) error

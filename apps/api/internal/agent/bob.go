@@ -158,6 +158,38 @@ Respond ONLY with a valid JSON array of these objects. No markdown, no code fenc
 	return base
 }
 
+// Chat asks Bob a free-form question with optional cluster context.
+// It returns Bob's raw text response.
+func (b *BobBackend) Chat(ctx context.Context, message, clusterContext string) (string, error) {
+	chatCtx, cancel := context.WithTimeout(ctx, b.taskTimeout)
+	defer cancel()
+
+	prompt := message
+	if clusterContext != "" {
+		prompt = "You are a Kubernetes operations expert. Use the following cluster context to answer the question.\n\n" +
+			"CLUSTER CONTEXT:\n" + clusterContext + "\n\nQUESTION: " + message +
+			"\n\nAnswer clearly and concisely. Focus on actionable advice."
+	}
+
+	cmd := exec.CommandContext(chatCtx, b.bobBin,
+		"-p", prompt,
+		"--hide-intermediary-output",
+		"--yolo",
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if chatCtx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("bob timed out after %s", b.taskTimeout)
+	}
+	if err != nil {
+		return "", fmt.Errorf("bob: %w\nstderr: %s", err, stderr.String())
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
 // parseFindings extracts the first JSON array from bob's stdout.
 // Handles any stray text or log lines before the array.
 func parseFindings(output string) ([]Finding, error) {

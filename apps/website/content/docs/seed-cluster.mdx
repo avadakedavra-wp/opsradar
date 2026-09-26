@@ -1,0 +1,101 @@
+---
+title: Seed Demo Cluster
+description: Plant deliberate problems for a vivid OpsRadar demo.
+---
+
+# Seed Demo Cluster
+
+The `seed/demo-cluster/` directory contains two Deployments with deliberate problems, designed to give Bob plenty to find during a demo.
+
+## Apply the seed
+
+```bash
+# Create the namespace
+kubectl create namespace ops-radar-demo --dry-run=client -o yaml | kubectl apply -f -
+
+# Apply all seed manifests
+kubectl apply -k seed/demo-cluster/
+```
+
+Or use the Makefile shortcut:
+
+```bash
+make seed
+```
+
+## What's seeded
+
+### `over-provisioned-app`
+
+```yaml
+resources:
+  requests:
+    cpu: "4000m"     # 4 full cores — actual usage ~12m
+    memory: "2Gi"
+image: nginx:latest  # unpinned tag
+# no livenessProbe
+# no readinessProbe
+```
+
+**Issues Bob finds:**
+- CPU massively over-provisioned (4000m requested vs ~12m actual)
+- Unpinned image tag `nginx:latest`
+- Missing liveness probe
+- Missing readiness probe
+
+### `missing-limits-app`
+
+```yaml
+# no resources block at all
+image: nginx:1.25
+# no livenessProbe
+# no readinessProbe
+```
+
+**Issues Bob finds:**
+- No resource requests
+- No resource limits
+- Missing liveness probe
+- Missing readiness probe
+
+## Full demo walkthrough
+
+```bash
+# 1. Plant the problems
+kubectl apply -k seed/demo-cluster/
+
+# 2. Start OpsRadar
+docker compose up
+
+# 3. Open the dashboard
+open http://localhost:3000
+
+# 4. Click "Scan Now" — watch live stream, see findings
+
+# 5. Click "Generate PR" on a finding — verify PR on GitHub
+
+# 6. Resolve a finding
+curl http://localhost:8080/findings/<id>/resolve
+
+# 7. Click "Scan Now" again — radar goes green for resolved findings
+```
+
+## Verify Bob finds all issues
+
+After scanning, `GET /radar` should show at least:
+
+```json
+{
+  "radar": [
+    {
+      "namespace": "ops-radar-demo",
+      "critical": 2,
+      "high": 3,
+      "medium": 1,
+      "low": 0
+    }
+  ]
+}
+```
+
+Exact counts depend on your Bob Shell version and model.

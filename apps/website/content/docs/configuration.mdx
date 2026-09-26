@@ -1,0 +1,60 @@
+---
+title: Configuration
+description: All environment variables and configuration options.
+---
+
+# Configuration
+
+All configuration is via environment variables. Copy `.env.example` to `.env` and fill in values.
+
+## Variables
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `STORE_PATH` | `/data/ops-radar.db` | No | Path to the SQLite database file |
+| `BOB_BIN` | `bob` | No | Path or name of the Bob Shell binary |
+| `GITHUB_TOKEN` | — | For PRs | GitHub personal access token (PAT) with `repo` scope |
+| `GITHUB_REPO` | — | For PRs | Default target repository (`owner/repo`) |
+| `OPS_RADAR_API_KEY` | — | No | API key for the HTTP API. Empty = auth disabled (dev mode) |
+| `PORT` | `8080` | No | Port for the Fiber API server |
+| `KUBECONFIG` | `~/.kube/config` | No | Path to the kubeconfig file |
+
+## GitHub token permissions
+
+The token only needs `repo` scope:
+
+- Read default branch SHA
+- Create branches
+- Commit files
+- Open pull requests
+
+No admin or delete permissions are used.
+
+## API key
+
+When `OPS_RADAR_API_KEY` is set, every request (except `GET /health`) must include:
+
+```
+X-API-Key: <your-key>
+```
+
+Leave it empty during local development.
+
+## Store path
+
+In Docker Compose, the SQLite file lives in the `ops-radar-data` named volume, mounted at `/data/ops-radar.db`. For local dev it defaults to the same path — create `/data/` or override with:
+
+```bash
+STORE_PATH=/tmp/ops-radar.db make dev
+```
+
+## Multiple kubeconfigs
+
+OpsRadar reads the `KUBECONFIG` environment variable. To merge multiple files:
+
+```bash
+export KUBECONFIG=~/.kube/config:~/.kube/work-config
+make dev
+```
+
+All contexts from all files will be scanned.

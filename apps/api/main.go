@@ -126,46 +126,64 @@ func main() {
 	_ = app.Shutdown()
 }
 
-// selectAgentBackend picks the AI backend for scan analysis:
+// selectAgentBackend picks the AI backend for scan analysis.
 //
-//   - AGENT_BACKEND=claude forces the Claude API backend.
-//   - AGENT_BACKEND=bob forces the bob-CLI backend.
-//   - AGENT_BACKEND unset/"auto" (default): use Claude if credentials are
-//     available, since it's a real, working LLM call with no external
-//     dependency; fall back to bob (e.g. for anyone who does have the real
-//     `bob` binary — this project's Dockerfile has no working install
-//     source for it, so BobBackend can't produce real findings here today).
+// Auto-detection order (AGENT_BACKEND=auto, the default):
+//  1. ANTHROPIC_API_KEY set          → Claude API (direct SDK call)
+//  2. `claude` CLI on PATH           → Claude CLI (uses claude.ai login auth)
+//  3. `bob` CLI on PATH              → Bob Shell AI
+//  4. nothing                        → return Claude API backend so callers
+//     get a specific "no credentials" error rather than a nil-pointer panic.
+//
+// Force a specific backend with AGENT_BACKEND=claude|claude-cli|bob.
 func selectAgentBackend() agent.Backend {
 	bobBin := getEnv("BOB_BIN", "bob")
+	claudeCLIBin := getEnv("CLAUDE_BIN", "claude")
+
 	bobBackend := agent.NewBobBackend(bobBin)
-	claudeBackend := agent.NewClaudeBackend(os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("ANTHROPIC_MODEL"))
+	claudeCLIBackend := agent.NewClaudeCLIBackend(claudeCLIBin)
+	claudeAPIBackend := agent.NewClaudeBackend(os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("ANTHROPIC_MODEL"))
 
 	switch getEnv("AGENT_BACKEND", "auto") {
 	case "claude":
-		if err := claudeBackend.Ready(); err != nil {
-			log.Printf("warning: AGENT_BACKEND=claude but %v — scans will fail until this is fixed", err)
+		if err := claudeAPIBackend.Ready(); err != nil {
+			log.Printf("warning: AGENT_BACKEND=claude but %v", err)
 		} else {
-			log.Printf("agent backend: Claude API (forced via AGENT_BACKEND)")
+			log.Printf("agent backend: Claude API (forced)")
 		}
-		return claudeBackend
+		return claudeAPIBackend
+
+	case "claude-cli":
+		if err := claudeCLIBackend.Ready(); err != nil {
+			log.Printf("warning: AGENT_BACKEND=claude-cli but %v", err)
+		} else {
+			log.Printf("agent backend: claude CLI (forced)")
+		}
+		return claudeCLIBackend
+
 	case "bob":
 		if err := bobBackend.Ready(); err != nil {
-			log.Printf("warning: AGENT_BACKEND=bob but %v — scans will fail until this is fixed", err)
+			log.Printf("warning: AGENT_BACKEND=bob but %v", err)
 		} else {
-			log.Printf("agent backend: bob CLI (forced via AGENT_BACKEND)")
+			log.Printf("agent backend: bob CLI (forced)")
 		}
 		return bobBackend
+
 	default: // "auto"
-		if err := claudeBackend.Ready(); err == nil {
-			log.Printf("agent backend: Claude API")
-			return claudeBackend
+		if err := claudeAPIBackend.Ready(); err == nil {
+			log.Printf("agent backend: Claude API (ANTHROPIC_API_KEY)")
+			return claudeAPIBackend
+		}
+		if err := claudeCLIBackend.Ready(); err == nil {
+			log.Printf("agent backend: claude CLI (~/.claude auth)")
+			return claudeCLIBackend
 		}
 		if err := bobBackend.Ready(); err == nil {
 			log.Printf("agent backend: bob CLI")
 			return bobBackend
 		}
-		log.Printf("warning: no agent backend available (no ANTHROPIC_API_KEY and no bob binary on PATH) — scans will fail until one is configured")
-		return claudeBackend // still returned so /scan's Ready() check gives a specific, actionable error
+		log.Printf("warning: no agent backend available — set ANTHROPIC_API_KEY, install claude CLI, or install bob")
+		return claudeAPIBackend
 	}
 }
 

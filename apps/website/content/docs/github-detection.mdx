@@ -1,0 +1,98 @@
+---
+title: GitHub Detection
+description: How OpsRadar finds the GitHub repository behind each Kubernetes workload.
+---
+
+# GitHub Detection
+
+OpsRadar tries to identify the GitHub repository that owns each Deployment so it can:
+
+1. Fetch source manifests from Git (not just the live cluster state)
+2. Generate PRs against the actual source files rather than describing hypothetical changes
+
+## Detection order
+
+The following sources are checked in priority order. The **first match** wins.
+
+### 1. Explicit annotation — `github.com/repo`
+
+```yaml
+metadata:
+  annotations:
+    github.com/repo: "myorg/myapp"
+```
+
+### 2. Annotation — `app.kubernetes.io/source-repo`
+
+```yaml
+metadata:
+  annotations:
+    app.kubernetes.io/source-repo: "myorg/myapp"
+```
+
+### 3. Annotation — `gitops.source.url`
+
+Accepts full HTTPS URLs:
+
+```yaml
+metadata:
+  annotations:
+    gitops.source.url: "https://github.com/myorg/myapp"
+```
+
+### 4. Container image — `ghcr.io`
+
+Images hosted on GitHub Container Registry are automatically parsed:
+
+```
+ghcr.io/myorg/myapp:sha-abc123  →  myorg/myapp
+```
+
+No annotation required — this is detected automatically.
+
+## Manifest fetching
+
+Once a repo is detected, OpsRadar calls the GitHub API to walk the repository tree and fetch files matching these path patterns:
+
+| Pattern | Examples |
+|---|---|
+| `deploy/` | `deploy/deployment.yaml` |
+| `k8s/` | `k8s/api-server.yaml` |
+| `kubernetes/` | `kubernetes/base/deployment.yaml` |
+| `manifests/` | `manifests/prod/app.yaml` |
+| `charts/` | `charts/myapp/templates/deployment.yaml` |
+| Common names | `deployment.yaml`, `ingress.yaml`, `service.yaml` |
+
+Up to **20 files** and **200 KB** total are fetched per repository.
+
+## Prompt enrichment
+
+When source manifests are available, Bob's prompt includes both:
+
+- The **live manifest** (what's currently running in the cluster)
+- The **source manifests** (what's in Git)
+
+This allows Bob to identify drift between the two, and ensures that diff patches in findings target the correct source file paths — making generated PRs immediately mergeable.
+
+## Unannotated workloads
+
+If no GitHub repo can be detected, OpsRadar still analyses the live manifest. Findings will have a `diff_patch` showing what should change, but the PR generation will use the `GITHUB_REPO` environment variable as the target repository.
+
+## Adding annotations to your deployments
+
+The fastest way to get full GitHub integration is to add one annotation per Deployment:
+
+```yaml
+metadata:
+  name: my-api
+  namespace: production
+  annotations:
+    github.com/repo: "myorg/my-api"
+```
+
+If you use Helm, add this to your chart's `deployment.yaml` template:
+
+```yaml
+annotations:
+  github.com/repo: "{{ .Values.githubRepo }}"
+```

@@ -1,0 +1,59 @@
+---
+title: Introduction
+description: OpsRadar — Kubernetes operations intelligence powered by IBM Bob Shell AI.
+---
+
+# OpsRadar
+
+OpsRadar is a **local-first** Kubernetes operations tool. It reads every context in your `~/.kube/config`, scans all connected clusters using IBM Bob Shell AI, and streams findings directly to your browser — with one-click GitHub PR generation for every fix.
+
+## What it does
+
+1. **Discovers** every Deployment across every namespace in every kubeconfig context
+2. **Analyses** each manifest with Bob Shell — resource limits, probes, image pinning, security posture
+3. **Detects** the GitHub repository behind each workload (from annotations or image tags)
+4. **Generates** commit-ready unified diff patches and opens real GitHub PRs
+
+## Who it's for
+
+Platform engineers and SREs who own Kubernetes cluster infrastructure. OpsRadar is designed for engineers who read YAML, run on-call shifts, and need findings that lead directly to a fix — not a report to action later.
+
+## Key properties
+
+| Property | Value |
+|---|---|
+| Runs locally | Yes — no cloud, no SaaS |
+| Storage | SQLite (single file on disk) |
+| Auth | Optional API key |
+| AI engine | IBM Bob Shell |
+| PR target | Any GitHub repository |
+
+## Architecture
+
+```
+~/.kube/config
+     │
+     ▼
+  k8s.Manager           ← one client per kubeconfig context
+     │ (parallel goroutines)
+     ▼
+  k8s.Scanner           ← lists Deployments + metrics per namespace
+     │
+     ▼
+  github.Detector       ← detects source repo from annotations / images
+     │
+     ▼
+  agent.BobBackend      ← invokes `bob` CLI, parses JSON findings
+     │
+     ▼
+  store.SQLite          ← persists scans, targets, findings
+     │
+     ▼
+  Fiber SSE handler     ← streams ProgressEvents to dashboard
+```
+
+## Next steps
+
+- [Quickstart](/docs/quickstart) — run OpsRadar in 60 seconds
+- [Configuration](/docs/configuration) — all environment variables
+- [API Reference](/docs/api-reference) — every HTTP endpoint

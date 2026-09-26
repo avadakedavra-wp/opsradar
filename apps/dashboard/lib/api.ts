@@ -32,15 +32,15 @@ export interface Scan {
 export function scanStatusMeta(status: string): { label: string; badgeClass: string; textClass: string; dotClass: string } {
   switch (status) {
     case "completed":
-      return { label: "completed", badgeClass: "bg-green-100 text-green-700", textClass: "text-green-600", dotClass: "bg-green-500" };
+      return { label: "completed", badgeClass: "bg-[#3fb950]/10 text-[#3fb950] border-[#3fb950]/25", textClass: "text-[#3fb950]", dotClass: "bg-[#3fb950]" };
     case "completed_with_errors":
-      return { label: "completed with errors", badgeClass: "bg-amber-100 text-amber-700", textClass: "text-amber-600", dotClass: "bg-amber-500" };
+      return { label: "with errors", badgeClass: "bg-[#e3b341]/10 text-[#e3b341] border-[#e3b341]/25", textClass: "text-[#e3b341]", dotClass: "bg-[#e3b341]" };
     case "failed":
-      return { label: "failed", badgeClass: "bg-red-100 text-red-700", textClass: "text-red-600", dotClass: "bg-red-500" };
+      return { label: "failed", badgeClass: "bg-[#f85149]/10 text-[#f85149] border-[#f85149]/25", textClass: "text-[#f85149]", dotClass: "bg-[#f85149]" };
     case "running":
-      return { label: "running", badgeClass: "bg-blue-100 text-blue-700", textClass: "text-blue-600", dotClass: "bg-blue-500" };
+      return { label: "running", badgeClass: "bg-[#388bfd]/10 text-[#388bfd] border-[#388bfd]/25", textClass: "text-[#388bfd]", dotClass: "bg-[#388bfd]" };
     default:
-      return { label: status, badgeClass: "bg-gray-100 text-gray-500", textClass: "text-gray-400", dotClass: "bg-gray-400" };
+      return { label: status, badgeClass: "bg-[#30363d] text-[#8b949e] border-[#30363d]", textClass: "text-[#8b949e]", dotClass: "bg-[#484f58]" };
   }
 }
 
@@ -136,6 +136,257 @@ export async function resolveFinding(findingId: string): Promise<void> {
   if (!res.ok) throw new Error(`POST /findings/resolve ${res.status}`);
 }
 
+// ---- K8s Operations --------------------------------------------------------
+
+export interface PodInfo {
+  name: string;
+  namespace: string;
+  context_name: string;
+  phase: string;
+  ready: boolean;
+  restarts: number;
+  node_name: string;
+  images: string[];
+  containers: string[];
+  created_at: string;
+}
+
+export interface HAFinding {
+  namespace: string;
+  deployment: string;
+  issue: string;
+  detail: string;
+  severity: string;
+}
+
+export async function listContexts(): Promise<string[]> {
+  const res = await fetch(`${API_URL}/k8s/contexts`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/contexts ${res.status}`);
+  const data = await res.json();
+  return data.contexts ?? [];
+}
+
+export async function listNamespaces(context = ""): Promise<string[]> {
+  const params = context ? `?context=${encodeURIComponent(context)}` : "";
+  const res = await fetch(`${API_URL}/k8s/namespaces${params}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/namespaces ${res.status}`);
+  const data = await res.json();
+  return data.namespaces ?? [];
+}
+
+export async function listPods(namespace = "", context = ""): Promise<PodInfo[]> {
+  const params = new URLSearchParams();
+  if (namespace) params.set("namespace", namespace);
+  if (context) params.set("context", context);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_URL}/k8s/pods${qs}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/pods ${res.status}`);
+  const data = await res.json();
+  return data.pods ?? [];
+}
+
+export async function getPodLogs(namespace: string, pod: string, opts?: { container?: string; lines?: number; context?: string }): Promise<string> {
+  const params = new URLSearchParams();
+  if (opts?.container) params.set("container", opts.container);
+  if (opts?.lines) params.set("lines", String(opts.lines));
+  if (opts?.context) params.set("context", opts.context);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_URL}/k8s/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/logs${qs}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET pod logs ${res.status}`);
+  const data = await res.json();
+  return data.logs ?? "";
+}
+
+export async function restartDeployment(namespace: string, deployment: string, context = ""): Promise<void> {
+  const res = await fetch(`${API_URL}/k8s/deployments/restart`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ namespace, deployment, context }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `restart failed ${res.status}`);
+  }
+}
+
+export async function scaleDeployment(namespace: string, deployment: string, replicas: number, context = ""): Promise<void> {
+  const res = await fetch(`${API_URL}/k8s/deployments/scale`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ namespace, deployment, replicas, context }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `scale failed ${res.status}`);
+  }
+}
+
+export async function deletePod(namespace: string, pod: string, context = ""): Promise<void> {
+  const params = context ? `?context=${encodeURIComponent(context)}` : "";
+  const res = await fetch(`${API_URL}/k8s/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}${params}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `delete pod failed ${res.status}`);
+  }
+}
+
+export async function applyYAML(yaml: string, context = ""): Promise<void> {
+  const res = await fetch(`${API_URL}/k8s/apply`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ yaml, context }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `apply failed ${res.status}`);
+  }
+}
+
+export async function applyFinding(findingId: string, context = ""): Promise<void> {
+  const params = context ? `?context=${encodeURIComponent(context)}` : "";
+  const res = await fetch(`${API_URL}/k8s/findings/${findingId}/apply${params}`, {
+    method: "POST",
+    headers: headers(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `apply finding failed ${res.status}`);
+  }
+}
+
+export interface WorkloadInfo {
+  name: string;
+  namespace: string;
+  ready: string;       // "2/3"
+  up_to_date: number;
+  available: number;
+  replicas: number;
+  desired: number;
+  image: string;
+  age: string;
+  selector: string;
+}
+
+export interface JobInfo {
+  name: string;
+  namespace: string;
+  completions: string; // "1/1"
+  duration: string;
+  status: string;      // Complete | Failed | Active
+  image: string;
+  age: string;
+}
+
+export interface CronJobInfo {
+  name: string;
+  namespace: string;
+  schedule: string;
+  suspend: boolean;
+  active: number;
+  last_run: string;
+  age: string;
+}
+
+export async function listDeployments(namespace = "", context = ""): Promise<WorkloadInfo[]> {
+  const params = new URLSearchParams();
+  if (namespace) params.set("namespace", namespace);
+  if (context) params.set("context", context);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_URL}/k8s/deployments${qs}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/deployments ${res.status}`);
+  const data = await res.json();
+  return data.workloads ?? [];
+}
+
+export async function listDaemonSets(namespace = "", context = ""): Promise<WorkloadInfo[]> {
+  const params = new URLSearchParams();
+  if (namespace) params.set("namespace", namespace);
+  if (context) params.set("context", context);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_URL}/k8s/daemonsets${qs}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/daemonsets ${res.status}`);
+  const data = await res.json();
+  return data.workloads ?? [];
+}
+
+export async function listStatefulSets(namespace = "", context = ""): Promise<WorkloadInfo[]> {
+  const params = new URLSearchParams();
+  if (namespace) params.set("namespace", namespace);
+  if (context) params.set("context", context);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_URL}/k8s/statefulsets${qs}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/statefulsets ${res.status}`);
+  const data = await res.json();
+  return data.workloads ?? [];
+}
+
+export async function listReplicaSets(namespace = "", context = ""): Promise<WorkloadInfo[]> {
+  const params = new URLSearchParams();
+  if (namespace) params.set("namespace", namespace);
+  if (context) params.set("context", context);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_URL}/k8s/replicasets${qs}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/replicasets ${res.status}`);
+  const data = await res.json();
+  return data.workloads ?? [];
+}
+
+export async function listJobs(namespace = "", context = ""): Promise<JobInfo[]> {
+  const params = new URLSearchParams();
+  if (namespace) params.set("namespace", namespace);
+  if (context) params.set("context", context);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_URL}/k8s/jobs${qs}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/jobs ${res.status}`);
+  const data = await res.json();
+  return data.jobs ?? [];
+}
+
+export async function listCronJobs(namespace = "", context = ""): Promise<CronJobInfo[]> {
+  const params = new URLSearchParams();
+  if (namespace) params.set("namespace", namespace);
+  if (context) params.set("context", context);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_URL}/k8s/cronjobs${qs}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/cronjobs ${res.status}`);
+  const data = await res.json();
+  return data.cronjobs ?? [];
+}
+
+export async function getHAAnalysis(context = ""): Promise<HAFinding[]> {
+  const params = context ? `?context=${encodeURIComponent(context)}` : "";
+  const res = await fetch(`${API_URL}/k8s/ha-analysis${params}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /k8s/ha-analysis ${res.status}`);
+  const data = await res.json();
+  return data.findings ?? [];
+}
+
+// ---- Ask Bob ---------------------------------------------------------------
+
+export async function askBob(message: string, opts?: { contextType?: string; contextId?: string; k8sContext?: string }): Promise<string> {
+  const res = await fetch(`${API_URL}/bob/chat`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({
+      message,
+      context_type: opts?.contextType ?? "",
+      context_id: opts?.contextId ?? "",
+      k8s_context: opts?.k8sContext ?? "",
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `ask bob failed ${res.status}`);
+  }
+  const data = await res.json();
+  return data.reply ?? "";
+}
+
+// ---- Docker ----------------------------------------------------------------
+
 export async function listContainers(): Promise<Container[]> {
   const res = await fetch(`${API_URL}/docker`, { headers: headers() });
   if (!res.ok) throw new Error(`GET /docker ${res.status}`);
@@ -158,4 +409,44 @@ export function streamScan(scanId: string, onEvent: (e: ProgressEvent) => void):
   };
   es.onerror = () => es.close();
   return () => es.close();
+}
+
+// ---- GitHub local repos ----------------------------------------------------
+
+export interface LocalRepo {
+  path: string;
+  name: string;
+  remote_url: string;
+  branch: string;
+  last_commit: string;
+  has_dot_github: boolean;
+  workflows: number;
+}
+
+export async function listLocalRepos(root?: string): Promise<LocalRepo[]> {
+  const q = root ? `?root=${encodeURIComponent(root)}` : "";
+  const res = await fetch(`${API_URL}/github/repos${q}`, { headers: headers() });
+  if (!res.ok) throw new Error(`GET /github/repos ${res.status}`);
+  const data = await res.json();
+  return data.repos ?? [];
+}
+
+export interface RepoFinding {
+  repo: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  category: string;
+  file: string;
+  title: string;
+  detail: string;
+  fix: string;
+}
+
+export async function scanGitHubRepos(paths: string[]): Promise<{ findings: RepoFinding[]; repos: string[] }> {
+  const res = await fetch(`${API_URL}/github/scan`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify({ paths }),
+  });
+  if (!res.ok) throw new Error(`POST /github/scan ${res.status}`);
+  return res.json();
 }

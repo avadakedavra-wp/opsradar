@@ -1,0 +1,81 @@
+---
+title: Quickstart
+description: Run OpsRadar locally in under 60 seconds.
+---
+
+# Quickstart
+
+## Prerequisites
+
+- **Go 1.23+** — for the API server
+- **Node.js 22+** — for the dashboard and website
+- **`~/.kube/config`** — at least one valid kubeconfig context
+- **[IBM Bob Shell](https://bob.ibm.com)** — installed and available in `$PATH` as `bob`
+- **GitHub personal access token** *(optional)* — required only for PR generation
+
+## Option A — Docker Compose
+
+The fastest path. Mounts your local kubeconfig read-only.
+
+```bash
+git clone https://github.com/your-org/opsradar
+cd opsradar
+cp .env.example .env
+```
+
+Edit `.env` and fill in:
+
+```bash
+GITHUB_TOKEN=ghp_...
+GITHUB_REPO=myorg/myrepo
+```
+
+Then start:
+
+```bash
+docker compose up
+```
+
+Open **http://localhost:3000** — the dashboard loads immediately.
+
+## Option B — Local dev mode
+
+Runs the Go API and Next.js dashboard without Docker.
+
+```bash
+make dev
+```
+
+This starts:
+- Go API on `http://localhost:8080`
+- Next.js dashboard on `http://localhost:3000`
+
+## First scan
+
+1. Open **http://localhost:3000**
+2. Click **⚡ Scan Now**
+3. OpsRadar reads all your kubeconfig contexts and fans out goroutines across every namespace
+4. Watch findings stream in real time in the scan view
+5. Click **Generate PR** on any finding with a diff patch
+
+## Verify the API
+
+```bash
+curl http://localhost:8080/health
+# {"status":"ok"}
+```
+
+## Seed a demo cluster
+
+If you want deliberate problems to find, apply the seed manifests:
+
+```bash
+kubectl create namespace ops-radar-demo --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -k seed/demo-cluster/
+```
+
+This creates two Deployments with known issues:
+- `over-provisioned-app` — 4000m CPU request, `nginx:latest`, no probes
+- `missing-limits-app` — no resource requests, no limits, no probes
+
+Bob will find at least 4 distinct issues across these.

@@ -1,0 +1,214 @@
+---
+title: API Reference
+description: Complete HTTP API reference for the OpsRadar backend.
+---
+
+# API Reference
+
+Base URL: `http://localhost:8080`
+
+All routes except `GET /health` require `X-API-Key` when `OPS_RADAR_API_KEY` is set.
+
+---
+
+## Health
+
+### `GET /health`
+
+Returns server status. No auth required.
+
+**Response**
+
+```json
+{ "status": "ok" }
+```
+
+---
+
+## Scans
+
+### `POST /scan`
+
+Start an asynchronous scan across all (or filtered) kubeconfig contexts. Returns immediately with a `scan_id` — use the SSE stream to follow progress.
+
+**Body**
+
+```json
+{
+  "cluster_name": "my-cluster",
+  "namespace": ""
+}
+```
+
+- `cluster_name` — label stored with the scan record (cosmetic, defaults to `"default-cluster"`)
+- `namespace` — if non-empty, restricts scanning to this namespace only
+
+**Response** `202 Accepted`
+
+```json
+{ "scan_id": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+---
+
+### `GET /scan/:id/stream`
+
+Server-sent events (SSE) stream for a running scan.
+
+**Headers**
+
+```
+Accept: text/event-stream
+```
+
+**Event shape**
+
+```json
+{
+  "task_id": "uuid",
+  "message": "🔍 analysing prod/api-server (resource-audit)…",
+  "finding": {
+    "severity": "critical",
+    "title": "Unpinned image tag — nginx:latest",
+    "detail": "...",
+    "suggestion": "...",
+    "diff_patch": "--- a/deploy/deployment.yaml\n+++ ..."
+  },
+  "done": false
+}
+```
+
+`done: true` signals the stream is closed. `finding` is only present on finding events.
+
+---
+
+## History
+
+### `GET /history`
+
+Returns all scan records, newest first, with aggregated open-finding severity counts.
+
+**Response**
+
+```json
+{
+  "scans": [
+    {
+      "id": "uuid",
+      "cluster_name": "prod",
+      "started_at": "2025-01-15T10:00:00Z",
+      "finished_at": "2025-01-15T10:01:42Z",
+      "status": "completed",
+      "critical": 2,
+      "high": 5,
+      "medium": 3,
+      "low": 1
+    }
+  ]
+}
+```
+
+---
+
+## Recommendations
+
+### `GET /recommendations?scan_id=<uuid>`
+
+All findings for a scan, sorted by severity (critical first).
+
+**Response**
+
+```json
+{
+  "findings": [
+    {
+      "id": "uuid",
+      "scan_target_id": "uuid",
+      "kind": "resource-audit",
+      "severity": "critical",
+      "title": "Unpinned image tag — nginx:latest",
+      "detail": "The container web uses nginx:latest...",
+      "suggestion": "Pin to a specific digest, e.g. nginx:1.27.0",
+      "diff_patch": "--- a/deploy/deployment.yaml\n+++ ..."
+    }
+  ]
+}
+```
+
+---
+
+## Radar
+
+### `GET /radar`
+
+Aggregated open-finding counts per namespace from the **latest completed scan only**.
+
+```json
+{
+  "radar": [
+    { "namespace": "prod",      "critical": 2, "high": 1, "medium": 3, "low": 0 },
+    { "namespace": "staging",   "critical": 0, "high": 2, "medium": 1, "low": 4 },
+    { "namespace": "kube-system","critical": 0, "high": 0, "medium": 0, "low": 0 }
+  ]
+}
+```
+
+Resolved findings (where `resolved_at IS NOT NULL`) are excluded.
+
+---
+
+## Pull Requests
+
+### `POST /pr/generate`
+
+Create a GitHub branch, commit the finding's diff patch, and open a PR.
+
+**Body**
+
+```json
+{ "finding_id": "uuid" }
+```
+
+**Response**
+
+```json
+{ "pr_url": "https://github.com/myorg/myrepo/pull/42" }
+```
+
+Returns `400` if the finding has no `diff_patch`.
+
+---
+
+## Findings
+
+### `GET /findings/:id/resolve`
+
+Mark a finding as resolved. Sets `resolved_at` to now. The next `GET /radar` will exclude it.
+
+**Response**
+
+```json
+{ "resolved": true }
+```
+
+---
+
+## Docker
+
+### `GET /docker`
+
+Lists all containers on the Docker host running the API (calls `docker ps -a`).
+
+```json
+{
+  "containers": [
+    {
+      "id": "abc123",
+      "name": "opsradar-api",
+      "image": "opsradar-api:latest",
+      "status": "Up 2 hours",
+      "created": "2025-01-15 08:00:00 +0000 UTC"
+    }
+  ]
+}
+```

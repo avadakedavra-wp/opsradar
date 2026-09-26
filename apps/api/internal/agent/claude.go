@@ -96,3 +96,35 @@ func (b *ClaudeBackend) Run(ctx context.Context, task Task) Result {
 	}
 	return Result{TaskID: task.ID, Findings: findings}
 }
+
+// Chat answers a free-form question using the Claude API.
+func (b *ClaudeBackend) Chat(ctx context.Context, message, clusterContext string) (string, error) {
+	chatCtx, cancel := context.WithTimeout(ctx, b.taskTimeout)
+	defer cancel()
+
+	prompt := message
+	if clusterContext != "" {
+		prompt = "You are a Kubernetes operations expert embedded in OpsRadar. Use the following live cluster context to answer the question.\n\n" +
+			"CLUSTER CONTEXT:\n" + clusterContext + "\n\nQUESTION: " + message +
+			"\n\nAnswer clearly and concisely. Focus on actionable advice for the platform engineer."
+	}
+
+	resp, err := b.client.Messages.New(chatCtx, anthropic.MessageNewParams{
+		Model:     anthropic.Model(b.model),
+		MaxTokens: 2048,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("claude API: %w", err)
+	}
+
+	var text strings.Builder
+	for _, block := range resp.Content {
+		if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
+			text.WriteString(tb.Text)
+		}
+	}
+	return strings.TrimSpace(text.String()), nil
+}

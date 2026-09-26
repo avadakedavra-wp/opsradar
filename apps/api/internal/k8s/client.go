@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	metricsv1beta1 "k8s.io/metrics/pkg/client/clientset/versioned"
@@ -17,6 +18,7 @@ type Client struct {
 	ClusterName string
 	kube        kubernetes.Interface
 	metrics     metricsv1beta1.Interface
+	restCfg     *rest.Config
 }
 
 // Manager holds clients for every context in the kubeconfig.
@@ -112,6 +114,7 @@ func newClientForContext(
 		ContextName: contextName,
 		ClusterName: clusterName,
 		kube:        kube,
+		restCfg:     restCfg,
 	}
 
 	// metrics-server is optional

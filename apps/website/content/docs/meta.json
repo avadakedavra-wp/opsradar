@@ -1,0 +1,4 @@
+{
+  "title": "OpsRadar",
+  "pages": ["index", "quickstart", "configuration", "api-reference", "github-detection", "helm-deploy", "seed-cluster"]
+}

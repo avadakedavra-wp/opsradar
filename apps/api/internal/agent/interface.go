@@ -62,4 +62,8 @@ type Backend interface {
 	// this before starting a scan, so a missing dependency produces a clear
 	// upfront error instead of every task silently failing one by one.
 	Ready() error
+
+	// Chat answers a free-form question with optional cluster context text.
+	// Returns the raw response text.
+	Chat(ctx context.Context, message, clusterContext string) (string, error)
 }

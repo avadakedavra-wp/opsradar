@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { listScans, Scan } from "@/lib/api";
 import HistoryTimeline from "@/components/HistoryTimeline";
+import { AlertCircle } from "lucide-react";
 
 export default function HistoryPage() {
   const [scans, setScans] = useState<Scan[]>([]);
@@ -12,45 +13,59 @@ export default function HistoryPage() {
     listScans().then(setScans).catch((e) => setError(String(e)));
   }, []);
 
-  // Build chart data: total findings per scan (last 10)
   const chartScans = scans.slice(0, 10).reverse();
   const maxFindings = Math.max(1, ...chartScans.map((s) => s.critical + s.high + s.medium + s.low));
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+    <main className="overflow-y-auto h-full px-6 py-6 space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Scan History</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{scans.length} scan{scans.length !== 1 ? "s" : ""} recorded</p>
+        <h1 className="text-lg font-semibold text-[#f0f6fc] tracking-tight">Scan History</h1>
+        <p className="text-xs text-[#8b949e] mt-0.5">
+          {scans.length} scan{scans.length !== 1 ? "s" : ""} recorded
+        </p>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>
+        <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md px-3 py-2.5">
+          <AlertCircle size={13} />
+          {error}
+        </div>
       )}
 
       {/* Mini bar chart */}
       {chartScans.length >= 2 && (
-        <section>
-          <h2 className="text-base font-semibold mb-3">Finding Trend (last {chartScans.length} scans)</h2>
-          <div className="flex items-end gap-2 h-32 border-b pb-1">
+        <section className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
+          <h2 className="text-xs font-semibold text-[#f0f6fc] mb-4">
+            Finding Trend — last {chartScans.length} scans
+          </h2>
+          <div className="flex items-end gap-1.5 h-24">
             {chartScans.map((s) => {
               const total = s.critical + s.high + s.medium + s.low;
               const pct = Math.round((total / maxFindings) * 100);
-              const color = s.critical > 0 ? "bg-red-500" : s.high > 0 ? "bg-orange-400" : s.medium > 0 ? "bg-yellow-400" : "bg-green-400";
+              const color =
+                s.critical > 0 ? "#f85149"
+                : s.high > 0   ? "#e3b341"
+                : s.medium > 0 ? "#d29922"
+                : "#3fb950";
               return (
                 <div key={s.id} className="flex-1 flex flex-col items-center gap-1">
-                  <span className="text-xs text-gray-400">{total}</span>
+                  <span className="text-[10px] font-mono" style={{ color }}>{total}</span>
                   <div
-                    className={`w-full rounded-t ${color}`}
-                    style={{ height: `${Math.max(4, pct)}%` }}
+                    className="w-full rounded-sm"
+                    style={{
+                      height: `${Math.max(4, pct)}%`,
+                      background: color,
+                      opacity: 0.8,
+                    }}
                     title={`${new Date(s.started_at).toLocaleDateString()}: ${total} findings`}
                   />
                 </div>
               );
             })}
           </div>
-          <div className="flex gap-2 mt-1">
+          <div className="flex gap-1.5 mt-2 border-t border-[#21262d] pt-2">
             {chartScans.map((s) => (
-              <div key={s.id} className="flex-1 text-center text-xs text-gray-400 truncate">
+              <div key={s.id} className="flex-1 text-center text-[9px] text-[#484f58] font-mono truncate">
                 {new Date(s.started_at).toLocaleDateString()}
               </div>
             ))}
@@ -58,9 +73,8 @@ export default function HistoryPage() {
         </section>
       )}
 
-      {/* Timeline */}
       <section>
-        <h2 className="text-base font-semibold mb-4">Timeline</h2>
+        <h2 className="text-xs font-semibold text-[#f0f6fc] mb-4">Timeline</h2>
         <HistoryTimeline scans={scans} />
       </section>
     </main>

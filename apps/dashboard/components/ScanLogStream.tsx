@@ -35,9 +35,9 @@ export default function ScanLogStream({ scanId, onDone }: Props) {
   return (
     <div
       ref={containerRef}
-      className="bg-gray-950 rounded-xl p-4 h-96 overflow-y-auto border border-gray-800"
+      className="bg-[#0d1117] rounded-lg p-4 h-80 overflow-y-auto border border-[#21262d]"
     >
-      <div className="text-gray-500 text-xs mb-2 font-mono">— scan stream: {scanId} —</div>
+      <div className="text-[#484f58] text-[10px] mb-3 font-mono">scan stream · {scanId}</div>
       <div ref={linesRef} />
     </div>
   );

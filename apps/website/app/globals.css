@@ -1,0 +1,92 @@
+@import "tailwindcss";
+@import "fumadocs-ui/style.css";
+
+/* ── Design tokens ─────────────────────────────────────────── */
+:root {
+  --bg:          #ffffff;
+  --bg-subtle:   #f7f8fa;
+  --bg-card:     #ffffff;
+  --border:      #e5e7eb;
+  --text:        #111827;
+  --text-muted:  #6b7280;
+  --text-inv:    #ffffff;
+  --accent:      #6366f1;       /* indigo-500 */
+  --accent-dim:  #4f46e5;
+  --accent-glow: rgba(99,102,241,.15);
+  --sev-critical:#dc2626;
+  --sev-high:    #ea580c;
+  --sev-medium:  #ca8a04;
+  --sev-low:     #2563eb;
+  --sev-ok:      #16a34a;
+}
+
+[data-theme="dark"] {
+  --bg:          #0d0d0f;
+  --bg-subtle:   #16161a;
+  --bg-card:     #1c1c21;
+  --border:      #2a2a33;
+  --text:        #f0f0f5;
+  --text-muted:  #8b8b9e;
+  --text-inv:    #0d0d0f;
+  --accent:      #818cf8;
+  --accent-dim:  #6366f1;
+  --accent-glow: rgba(129,140,248,.15);
+}
+
+/* ── Base ────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  line-height: 1.65;
+  transition: background 0.2s, color 0.2s;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Reduced motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ── Utility overrides ──────────────────────────────────────── */
+.token-bg       { background: var(--bg); }
+.token-bg-s     { background: var(--bg-subtle); }
+.token-bg-card  { background: var(--bg-card); }
+.token-border   { border-color: var(--border); }
+.token-text     { color: var(--text); }
+.token-muted    { color: var(--text-muted); }
+.token-accent   { color: var(--accent); }
+.token-accent-bg{ background: var(--accent); color: var(--text-inv); }
+
+/* ── Code block ─────────────────────────────────────────────── */
+.code-block {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* ── Prose ──────────────────────────────────────────────────── */
+.prose h2 { font-size: 1.375rem; font-weight: 700; margin: 2rem 0 .75rem; color: var(--text); }
+.prose h3 { font-size: 1.125rem; font-weight: 600; margin: 1.5rem 0 .5rem; color: var(--text); }
+.prose p  { margin: 0 0 1rem; color: var(--text-muted); }
+.prose ul { margin: 0 0 1rem 1.25rem; list-style: disc; color: var(--text-muted); }
+.prose li { margin-bottom: .35rem; }
+.prose a  { color: var(--accent); text-decoration: underline; }
+.prose code{
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  padding: .1em .35em;
+  border-radius: .3em;
+  font-size: .875em;
+  font-family: var(--font-geist-mono), monospace;
+}

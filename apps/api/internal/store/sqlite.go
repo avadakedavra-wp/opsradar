@@ -152,6 +152,18 @@ func (s *sqliteStore) CreateScanTarget(t ScanTarget) error {
 	return err
 }
 
+// GetScanTargetByID returns a single scan target by ID.
+func (s *sqliteStore) GetScanTargetByID(id string) (ScanTarget, error) {
+	var t ScanTarget
+	err := s.db.QueryRow(
+		`SELECT id, scan_id, context_name, namespace, deployment,
+		        cpu_request_m, cpu_usage_m, mem_request_mi, mem_usage_mi
+		 FROM scan_targets WHERE id=?`, id,
+	).Scan(&t.ID, &t.ScanID, &t.ContextName, &t.Namespace, &t.Deployment,
+		&t.CPURequestM, &t.CPUUsageM, &t.MemRequestMi, &t.MemUsageMi)
+	return t, err
+}
+
 // CreateFinding inserts a finding.
 func (s *sqliteStore) CreateFinding(f Finding) error {
 	_, err := s.db.Exec(

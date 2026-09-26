@@ -1,0 +1,90 @@
+---
+title: Helm Deploy
+description: Deploy OpsRadar into a Kubernetes cluster using the Helm chart.
+---
+
+# Helm Deploy
+
+The Helm chart at `deploy/helm/` packages OpsRadar for in-cluster deployment with least-privilege RBAC.
+
+## Quick install
+
+```bash
+helm install opsradar deploy/helm \
+  --namespace opsradar \
+  --create-namespace \
+  --set secrets.githubToken=ghp_... \
+  --set secrets.githubRepo=myorg/myrepo \
+  --set secrets.apiKey=my-secret-key
+```
+
+## Port-forward the dashboard
+
+```bash
+kubectl port-forward -n opsradar svc/opsradar-opsradar-dashboard 3000:3000
+kubectl port-forward -n opsradar svc/opsradar-opsradar-api 8080:8080
+```
+
+Open **http://localhost:3000**.
+
+## Values
+
+| Value | Default | Description |
+|---|---|---|
+| `image.api.repository` | `opsradar-api` | API container image |
+| `image.api.tag` | `latest` | API image tag |
+| `image.dashboard.repository` | `opsradar-dashboard` | Dashboard image |
+| `image.dashboard.tag` | `latest` | Dashboard image tag |
+| `env.storePath` | `/data/ops-radar.db` | SQLite file path |
+| `secrets.githubToken` | — | GitHub PAT |
+| `secrets.githubRepo` | — | Target repo (`owner/repo`) |
+| `secrets.apiKey` | — | API key |
+| `persistence.enabled` | `true` | Mount a PVC for SQLite |
+| `persistence.size` | `1Gi` | PVC size |
+| `rbac.scope` | `cluster` | `cluster` or `namespace` |
+| `rbac.namespaces` | `[]` | Namespaces for `scope=namespace` |
+
+## RBAC
+
+### Cluster scope (default)
+
+Creates a `ClusterRole` + `ClusterRoleBinding`. OpsRadar can scan all namespaces.
+
+```bash
+helm install opsradar deploy/helm --set rbac.scope=cluster
+```
+
+### Namespace scope
+
+Creates a `Role` + `RoleBinding` in each listed namespace.
+
+```bash
+helm install opsradar deploy/helm \
+  --set rbac.scope=namespace \
+  --set "rbac.namespaces={production,staging}"
+```
+
+### Permissions granted
+
+```yaml
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["selfsubjectaccessreviews"]
+  verbs: ["create"]
+```
+
+No `secrets` access. No `create`, `update`, or `delete` verbs on cluster resources. Ever.
+
+## Lint
+
+```bash
+helm lint deploy/helm
+```

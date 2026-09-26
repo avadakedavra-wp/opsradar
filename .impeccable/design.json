@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-26T00:00:00Z",
+  "title": "Design System: OpsRadar",
+  "extensions": {
+    "colorMeta": {
+      "command": {
+        "role": "primary",
+        "displayName": "Command Indigo",
+        "canonical": "#4f46e5",
+        "tonalRamp": ["#1e1b4b", "#312e81", "#3730a3", "#4338ca", "#4f46e5", "#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe", "#e0e7ff"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Hard Ink",
+        "canonical": "#171717",
+        "tonalRamp": ["#0a0a0a", "#171717", "#262626", "#404040", "#525252", "#737373", "#a3a3a3", "#d4d4d4", "#e5e5e5", "#f5f5f5"]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Zero Canvas",
+        "canonical": "#ffffff",
+        "tonalRamp": ["#0a0a0a", "#262626", "#525252", "#a3a3a3", "#d4d4d4", "#e5e5e5", "#f5f5f5", "#fafafa", "#ffffff", "#ffffff"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Lifted Surface",
+        "canonical": "#f9fafb",
+        "tonalRamp": ["#111827", "#1f2937", "#374151", "#6b7280", "#9ca3af", "#d1d5db", "#e5e7eb", "#f3f4f6", "#f9fafb", "#ffffff"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Steel Rule",
+        "canonical": "#e5e7eb",
+        "tonalRamp": ["#111827", "#1f2937", "#374151", "#6b7280", "#9ca3af", "#d1d5db", "#e5e7eb", "#f3f4f6", "#f9fafb", "#ffffff"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Lead",
+        "canonical": "#6b7280",
+        "tonalRamp": ["#111827", "#1f2937", "#374151", "#4b5563", "#6b7280", "#9ca3af", "#d1d5db", "#e5e7eb", "#f3f4f6", "#f9fafb"]
+      },
+      "terminal-bg": {
+        "role": "neutral",
+        "displayName": "Ops Dark",
+        "canonical": "#030712",
+        "tonalRamp": ["#030712", "#0a0a0a", "#111827", "#1f2937", "#374151", "#4b5563", "#6b7280", "#9ca3af", "#d1d5db", "#f9fafb"]
+      },
+      "terminal-ink": {
+        "role": "neutral",
+        "displayName": "Trace Green",
+        "canonical": "#86efac",
+        "tonalRamp": ["#052e16", "#14532d", "#166534", "#15803d", "#16a34a", "#22c55e", "#4ade80", "#86efac", "#bbf7d0", "#dcfce7"]
+      },
+      "severity-critical": {
+        "role": "semantic",
+        "displayName": "Alert Red",
+        "canonical": "#dc2626",
+        "tonalRamp": ["#450a0a", "#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#ef4444", "#f87171", "#fca5a5", "#fecaca", "#fee2e2"]
+      },
+      "severity-high": {
+        "role": "semantic",
+        "displayName": "Warning Orange",
+        "canonical": "#f97316",
+        "tonalRamp": ["#431407", "#7c2d12", "#9a3412", "#c2410c", "#ea580c", "#f97316", "#fb923c", "#fdba74", "#fed7aa", "#ffedd5"]
+      },
+      "severity-medium": {
+        "role": "semantic",
+        "displayName": "Caution Yellow",
+        "canonical": "#facc15",
+        "tonalRamp": ["#422006", "#713f12", "#854d0e", "#a16207", "#ca8a04", "#eab308", "#facc15", "#fde047", "#fef08a", "#fef9c3"]
+      },
+      "severity-low": {
+        "role": "semantic",
+        "displayName": "Notice Blue",
+        "canonical": "#3b82f6",
+        "tonalRamp": ["#172554", "#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#dbeafe", "#eff6ff"]
+      },
+      "severity-clean": {
+        "role": "semantic",
+        "displayName": "Clear Green",
+        "canonical": "#22c55e",
+        "tonalRamp": ["#052e16", "#14532d", "#166534", "#15803d", "#16a34a", "#22c55e", "#4ade80", "#86efac", "#bbf7d0", "#dcfce7"]
+      }
+    },
+    "shadows": [
+      {
+        "name": "tile-lift",
+        "value": "0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px -1px rgba(0,0,0,0.1)",
+        "purpose": "Radar heatmap cells only. Slight physical presence for colored severity tiles."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-quart",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Default easing for state transitions (button hover, surface tint)."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single primary action on any screen. One per view.",
+      "html": "<button class=\"ds-btn-primary\">⚡ Scan Now</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 6px; background: #4f46e5; color: #fff; font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 0.875rem; font-weight: 600; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; transition: background 0.15s cubic-bezier(0.25,1,0.5,1); } .ds-btn-primary:hover { background: #4338ca; } .ds-btn-primary:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary actions — open PR, copy, external links.",
+      "html": "<button class=\"ds-btn-ghost\">Open PR ↗</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; gap: 4px; background: #f9fafb; color: #171717; font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 0.75rem; font-weight: 500; padding: 6px 12px; border-radius: 8px; border: 1px solid #e5e7eb; cursor: pointer; text-decoration: none; transition: background 0.15s cubic-bezier(0.25,1,0.5,1); } .ds-btn-ghost:hover { background: #f3f4f6; } .ds-btn-ghost:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }"
+    },
+    {
+      "name": "Severity Badge — Critical",
+      "kind": "chip",
+      "refersTo": "badge-critical",
+      "description": "Severity pill for critical findings. Color + text label always.",
+      "html": "<span class=\"ds-badge-critical\">critical</span>",
+      "css": ".ds-badge-critical { display: inline-flex; align-items: center; background: #dc2626; color: #fff; font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 9999px; line-height: 1.4; }"
+    },
+    {
+      "name": "Severity Badge — Medium",
+      "kind": "chip",
+      "refersTo": "badge-medium",
+      "description": "Medium severity pill — yellow fill requires dark text for contrast.",
+      "html": "<span class=\"ds-badge-medium\">medium</span>",
+      "css": ".ds-badge-medium { display: inline-flex; align-items: center; background: #facc15; color: #171717; font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 9999px; line-height: 1.4; }"
+    },
+    {
+      "name": "Recommendation Card",
+      "kind": "card",
+      "refersTo": null,
+      "description": "Container for a single Bob finding with severity, title, detail, and action buttons.",
+      "html": "<div class=\"ds-rec-card\"><div class=\"ds-rec-card__header\"><span class=\"ds-badge-critical\">critical</span><span class=\"ds-rec-card__title\">Missing resource limits on nginx</span></div><p class=\"ds-rec-card__detail\">Deployment has no CPU or memory limits set. This risks unbounded resource consumption.</p><div class=\"ds-rec-card__actions\"><button class=\"ds-btn-primary\" style=\"font-size:0.75rem;padding:6px 12px;\">Generate PR</button></div></div>",
+      "css": ".ds-rec-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; } .ds-rec-card__header { display: flex; align-items: flex-start; gap: 8px; } .ds-rec-card__title { font-size: 0.875rem; font-weight: 500; color: #171717; } .ds-rec-card__detail { font-size: 0.875rem; color: #4b5563; line-height: 1.6; margin: 0; } .ds-rec-card__actions { display: flex; gap: 8px; } .ds-badge-critical { display: inline-flex; align-items: center; background: #dc2626; color: #fff; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 9999px; line-height: 1.4; flex-shrink: 0; } .ds-btn-primary { display: inline-flex; align-items: center; gap: 6px; background: #4f46e5; color: #fff; font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; font-size: 0.75rem; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer; transition: background 0.15s; } .ds-btn-primary:hover { background: #4338ca; }"
+    },
+    {
+      "name": "Terminal / Log Pane",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "The scan log stream — the most visually distinctive component. Machine output only.",
+      "html": "<div class=\"ds-terminal\"><div class=\"ds-terminal__header\">— scan stream: abc123 —</div><div class=\"ds-terminal__line ds-terminal__line--clean\">[09:41:22] Analysing deployment: nginx-prod</div><div class=\"ds-terminal__line ds-terminal__line--critical\">[09:41:23] CRITICAL: missing resource limits on pod/nginx-prod-7d8f9 (C:1)</div><div class=\"ds-terminal__line ds-terminal__line--high\">[09:41:24] HIGH: unpinned image tag :latest on nginx-prod</div></div>",
+      "css": ".ds-terminal { background: #030712; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; font-family: 'Geist Mono', ui-monospace, SFMono-Regular, monospace; font-size: 0.75rem; line-height: 1.5; height: 240px; overflow-y: auto; } .ds-terminal__header { color: #4b5563; margin-bottom: 8px; } .ds-terminal__line { white-space: pre-wrap; } .ds-terminal__line--clean { color: #86efac; } .ds-terminal__line--critical { color: #f87171; } .ds-terminal__line--high { color: #fb923c; } .ds-terminal__line--medium { color: #fbbf24; }"
+    },
+    {
+      "name": "Navigation Bar",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "Sticky top nav with logo and section links.",
+      "html": "<header class=\"ds-nav\"><a href=\"/\" class=\"ds-nav__logo\">OpsRadar</a><nav class=\"ds-nav__links\"><a href=\"/\" class=\"ds-nav__link\">Radar</a><a href=\"/recommendations\" class=\"ds-nav__link\">Recommendations</a><a href=\"/history\" class=\"ds-nav__link\">History</a><a href=\"/docker\" class=\"ds-nav__link\">Docker</a></nav></header>",
+      "css": ".ds-nav { display: flex; align-items: center; gap: 24px; padding: 12px 16px; background: #fff; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; z-index: 10; font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; } .ds-nav__logo { font-weight: 700; font-size: 1.125rem; letter-spacing: -0.02em; color: #171717; text-decoration: none; } .ds-nav__links { display: flex; gap: 16px; } .ds-nav__link { font-size: 0.875rem; color: #6b7280; text-decoration: none; transition: color 0.15s; } .ds-nav__link:hover { color: #171717; }"
+    },
+    {
+      "name": "Radar Heatmap Cell",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Severity-colored tile showing namespace health at a glance. The product's signature element.",
+      "html": "<div class=\"ds-heatmap-cell ds-heatmap-cell--critical\"><span class=\"ds-heatmap-cell__name\">prod-api</span><span class=\"ds-heatmap-cell__count\">5 findings</span><div class=\"ds-heatmap-cell__breakdown\"><span>C:2</span><span>H:3</span></div></div>",
+      "css": ".ds-heatmap-cell { border-radius: 12px; padding: 16px; color: #fff; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px -1px rgba(0,0,0,0.1); font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif; } .ds-heatmap-cell--critical { background: #dc2626; } .ds-heatmap-cell--high { background: #f97316; } .ds-heatmap-cell--medium { background: #facc15; color: #171717; } .ds-heatmap-cell--low { background: #3b82f6; } .ds-heatmap-cell--clean { background: #22c55e; } .ds-heatmap-cell__name { font-weight: 600; font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-heatmap-cell__count { font-size: 0.75rem; opacity: 0.8; } .ds-heatmap-cell__breakdown { display: flex; gap: 4px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 0.75rem; flex-wrap: wrap; margin-top: 4px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Ops Room",
+    "overview": "OpsRadar's visual system is built around one question: what would a mission-control display for Kubernetes look like if it didn't compromise on clarity? The Ops Room metaphor demands that every pixel earns its place. Information density is a feature, not a problem to design around. The interface is calm at rest and decisive under pressure — it doesn't shout \"critical\" through aggressive color; it presents state clearly and lets severity speak through the established scale.\n\nThe design takes explicit cues from Vercel's dashboard: dark-capable precision, bold status indicators, a confident absence of decoration. It rejects the ops-tooling defaults — no DataDog navy-gray card grids, no PagerDuty alarm-red atmosphere, no Grafana neon metric lines. This is an intelligence layer, not a metrics viewer.",
+    "keyCharacteristics": [
+      "White canvas with tonal surfaces — no shadows, no texture, no warmth",
+      "Command Indigo as the single action voice — used sparingly, never decorative",
+      "Severity scale as the product's core language — five values, always consistent",
+      "Geist Sans for UI copy, Geist Mono for machine output",
+      "Flat elevation: surfaces separate by tint, not shadow"
+    ],
+    "rules": [
+      {
+        "name": "The One Command Rule",
+        "body": "Command Indigo appears on ≤1 primary action per screen. Its job is to say \"do this\" — use it twice and it no longer means anything.",
+        "section": "colors"
+      },
+      {
+        "name": "The Signal Rule",
+        "body": "Severity colors appear only on severity indicators. A red element that isn't a severity badge is a design error.",
+        "section": "colors"
+      },
+      {
+        "name": "The Flat-by-Default Rule",
+        "body": "Shadow is not a surface separator. Every time a shadow is added to a card or container, ask: can a background tint carry the separation instead? It almost always can.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Mono / Sans Divide",
+        "body": "Human-authored UI copy is Geist Sans. Machine-produced content (Bob's output, diffs, YAML, log lines) is Geist Mono. The division is semantic, not stylistic.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do use Command Indigo (#4f46e5) for exactly one primary CTA per screen.",
+      "Do pair severity colors with a text label. Color is never the only indicator of severity.",
+      "Do use Geist Mono for all machine-produced content: log lines, YAML, diff patches, scan IDs.",
+      "Do separate surfaces with background tint (#f9fafb) rather than box-shadow.",
+      "Do use border-radius 12px for cards and 8px for buttons.",
+      "Do keep body text in Hard Ink (#171717), not Muted Lead.",
+      "Do encode dual signals on severity: color AND label AND (where space allows) an icon."
+    ],
+    "donts": [
+      "Don't use border-left or border-right greater than 1px as a colored stripe on cards or callouts.",
+      "Don't use gradient text (background-clip: text).",
+      "Don't design for the DataDog / generic SaaS aesthetic: no navy left nav, no gray card grids.",
+      "Don't use the PagerDuty alarm-room aesthetic — no heavy red atmosphere.",
+      "Don't reference Grafana dark mode visual language outside the terminal pane.",
+      "Don't make any screen look like a startup SaaS landing page.",
+      "Don't add box-shadow to cards or navigation.",
+      "Don't use border-radius above 12px on cards or above 8px on buttons.",
+      "Don't use severity colors outside of severity indicators.",
+      "Don't mute body content to gray-600 for visual hierarchy — Hard Ink is required for primary reading content."
+    ]
+  }
+}

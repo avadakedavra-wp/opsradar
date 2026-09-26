@@ -15,7 +15,10 @@ func (p *PostgresStub) FinishScan(_, _ string, _ time.Time, _, _ int, _ string) 
 	panic("postgres not implemented")
 }
 func (p *PostgresStub) ListScans() ([]ScanRow, error)            { panic("postgres not implemented") }
-func (p *PostgresStub) CreateScanTarget(_ ScanTarget) error      { panic("postgres not implemented") }
+func (p *PostgresStub) CreateScanTarget(_ ScanTarget) error         { panic("postgres not implemented") }
+func (p *PostgresStub) GetScanTargetByID(_ string) (ScanTarget, error) {
+	panic("postgres not implemented")
+}
 func (p *PostgresStub) CreateFinding(_ Finding) error            { panic("postgres not implemented") }
 func (p *PostgresStub) GetFinding(_ string) (Finding, error)     { panic("postgres not implemented") }
 func (p *PostgresStub) ListFindings(_ string) ([]Finding, error) { panic("postgres not implemented") }
