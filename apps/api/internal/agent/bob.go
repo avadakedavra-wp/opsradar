@@ -2,15 +2,25 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+// defaultTaskTimeout bounds how long a single bob invocation may run before
+// it's killed and counted as a failed task. Configurable via BOB_TASK_TIMEOUT
+// (a Go duration string, e.g. "90s") since analysis time varies with manifest
+// size and the LLM backing bob.
+const defaultTaskTimeout = 3 * time.Minute
 
 // BobBackend invokes the `bob` CLI to analyse a deployment.
 type BobBackend struct {
-	bobBin string // path/name of the bob executable
+	bobBin      string // path/name of the bob executable
+	taskTimeout time.Duration
 }
 
 // NewBobBackend creates a BobBackend using the given binary name/path.
@@ -18,14 +28,36 @@ func NewBobBackend(bobBin string) *BobBackend {
 	if bobBin == "" {
 		bobBin = "bob"
 	}
-	return &BobBackend{bobBin: bobBin}
+	return &BobBackend{bobBin: bobBin, taskTimeout: taskTimeoutFromEnv()}
+}
+
+func taskTimeoutFromEnv() time.Duration {
+	if v := os.Getenv("BOB_TASK_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultTaskTimeout
+}
+
+// Ready reports whether the bob binary can actually be found on PATH.
+func (b *BobBackend) Ready() error {
+	if _, err := exec.LookPath(b.bobBin); err != nil {
+		return fmt.Errorf("bob binary %q not found: %w", b.bobBin, err)
+	}
+	return nil
 }
 
 // Run builds a structured prompt, invokes bob, and parses the JSON findings.
-func (b *BobBackend) Run(task Task) Result {
+// The subprocess is bound to both the caller's ctx and a per-task timeout, so
+// a hung `bob` process can never block a scan indefinitely.
+func (b *BobBackend) Run(ctx context.Context, task Task) Result {
+	taskCtx, cancel := context.WithTimeout(ctx, b.taskTimeout)
+	defer cancel()
+
 	prompt := buildPrompt(task)
 
-	cmd := exec.Command(b.bobBin,
+	cmd := exec.CommandContext(taskCtx, b.bobBin,
 		"-p", prompt,
 		"--hide-intermediary-output",
 		"--yolo",
@@ -35,7 +67,14 @@ func (b *BobBackend) Run(task Task) Result {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if taskCtx.Err() == context.DeadlineExceeded {
+		return Result{
+			TaskID: task.ID,
+			Err:    fmt.Errorf("bob timed out after %s", b.taskTimeout),
+		}
+	}
+	if err != nil {
 		return Result{
 			TaskID: task.ID,
 			Err:    fmt.Errorf("bob exited with error: %w\nstderr: %s", err, stderr.String()),
@@ -75,6 +114,15 @@ Live metrics (millicores / MiB):
 		ctx["cpu_request_m"], ctx["cpu_usage_m"],
 		ctx["mem_request_mi"], ctx["mem_usage_mi"],
 	)
+
+	if task.GitHubRepo != nil {
+		base += fmt.Sprintf("Detected source repository: %s (%s)\n\n", task.GitHubRepo.Slug, task.GitHubRepo.FullURL)
+		if task.SourceManifest != "" {
+			base += "--- SOURCE MANIFEST (from repo, may differ from live cluster state) ---\n" +
+				task.SourceManifest +
+				"\n--- END SOURCE MANIFEST ---\n\n"
+		}
+	}
 
 	switch task.Kind {
 	case KindResourceAudit:

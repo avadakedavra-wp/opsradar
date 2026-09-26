@@ -17,14 +17,14 @@ import (
 
 // DeploymentInfo is a single deployment within a namespace.
 type DeploymentInfo struct {
-	Name        string           `json:"name"`
-	Namespace   string           `json:"namespace"`
-	Replicas    int              `json:"replicas"`
-	Ready       int              `json:"ready"`
-	Images      []string         `json:"images"`
-	Manifest    string           `json:"manifest,omitempty"` // cleaned YAML, omitted in radar view
-	Usage       MetricsSnapshot  `json:"usage"`
-	GitHubRepo  *github.RepoInfo `json:"github_repo,omitempty"` // detected GitHub source
+	Name       string           `json:"name"`
+	Namespace  string           `json:"namespace"`
+	Replicas   int              `json:"replicas"`
+	Ready      int              `json:"ready"`
+	Images     []string         `json:"images"`
+	Manifest   string           `json:"manifest,omitempty"` // cleaned YAML, omitted in radar view
+	Usage      MetricsSnapshot  `json:"usage"`
+	GitHubRepo *github.RepoInfo `json:"github_repo,omitempty"` // detected GitHub source
 	// populated after Bob analysis
 	FindingCount int    `json:"finding_count,omitempty"`
 	MaxSeverity  string `json:"max_severity,omitempty"` // critical|high|medium|low|ok
@@ -47,10 +47,10 @@ type ClusterSnapshot struct {
 
 // MetricsSnapshot holds live CPU/memory for a deployment.
 type MetricsSnapshot struct {
-	CPURequestM   int `json:"cpu_request_m"`
-	CPUUsageM     int `json:"cpu_usage_m"`
-	MemRequestMi  int `json:"mem_request_mi"`
-	MemUsageMi    int `json:"mem_usage_mi"`
+	CPURequestM  int `json:"cpu_request_m"`
+	CPUUsageM    int `json:"cpu_usage_m"`
+	MemRequestMi int `json:"mem_request_mi"`
+	MemUsageMi   int `json:"mem_usage_mi"`
 }
 
 // ScanTarget is a flattened view for Bob analysis.

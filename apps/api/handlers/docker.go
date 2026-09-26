@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -24,6 +25,11 @@ type ContainerInfo struct {
 func (h *DockerHandler) List(c *fiber.Ctx) error {
 	containers, err := listContainers(c.Context())
 	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{
+				"error": "docker CLI unavailable in this deployment — this endpoint only works when OpsRadar runs directly on a Docker host, not inside the shipped container",
+			})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(fiber.Map{"containers": containers})

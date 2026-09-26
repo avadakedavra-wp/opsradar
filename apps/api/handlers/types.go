@@ -3,6 +3,9 @@ package handlers
 // StartScanRequest is the POST /scan body.
 type StartScanRequest struct {
 	ClusterName string `json:"cluster_name"`
+	// ContextName restricts the scan to one kubeconfig context. Empty means
+	// "every loaded context" (see k8s.Manager.ListScanTargets).
+	ContextName string `json:"context_name"`
 	Namespace   string `json:"namespace"`
 }
 

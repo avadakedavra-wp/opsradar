@@ -40,3 +40,19 @@ func (c *Client) VerifyPermissions(ctx context.Context) error {
 	}
 	return nil
 }
+
+// VerifyAll runs VerifyPermissions against every loaded context (or just
+// contextFilter, if non-empty) and returns a map of context name to the
+// error found there. An empty map means every checked context is fine.
+func (m *Manager) VerifyAll(ctx context.Context, contextFilter string) map[string]error {
+	failures := map[string]error{}
+	for _, c := range m.Clients {
+		if contextFilter != "" && c.ContextName != contextFilter {
+			continue
+		}
+		if err := c.VerifyPermissions(ctx); err != nil {
+			failures[c.ContextName] = err
+		}
+	}
+	return failures
+}

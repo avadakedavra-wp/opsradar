@@ -10,22 +10,62 @@ import (
 )
 
 //go:embed migrations/0001_init.sql
-var initSQL string
+var migration0001 string
+
+//go:embed migrations/0002_scan_result_summary.sql
+var migration0002 string
+
+// migrations run in order, exactly once each, tracked in schema_migrations.
+// Each entry's SQL must be safe to run standalone (not re-run on restart).
+var migrations = []struct {
+	version int
+	sql     string
+}{
+	{1, migration0001},
+	{2, migration0002},
+}
 
 type sqliteStore struct {
 	db *sql.DB
 }
 
-// Open opens (or creates) the SQLite database at path and runs migrations.
+// Open opens (or creates) the SQLite database at path and applies any
+// migrations that haven't run yet.
 func Open(path string) (Store, error) {
 	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_foreign_keys=on")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
-	if _, err := db.Exec(initSQL); err != nil {
+	if err := runMigrations(db); err != nil {
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 	return &sqliteStore{db: db}, nil
+}
+
+// runMigrations applies each migration exactly once, tracked by version.
+// Migration 0001 uses CREATE TABLE IF NOT EXISTS so it's idempotent even for
+// databases created before this tracking table existed; later migrations
+// (e.g. ALTER TABLE ADD COLUMN) are not safe to re-run, hence the tracking.
+func runMigrations(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+	for _, m := range migrations {
+		var applied int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, m.version).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration %d: %w", m.version, err)
+		}
+		if applied > 0 {
+			continue
+		}
+		if _, err := db.Exec(m.sql); err != nil {
+			return fmt.Errorf("apply migration %d: %w", m.version, err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, m.version); err != nil {
+			return fmt.Errorf("record migration %d: %w", m.version, err)
+		}
+	}
+	return nil
 }
 
 func (s *sqliteStore) Close() error { return s.db.Close() }
@@ -39,11 +79,24 @@ func (s *sqliteStore) CreateScan(sc Scan) error {
 	return err
 }
 
-// UpdateScan sets status and finished_at for a scan.
+// UpdateScan sets status and finished_at for a scan — used for early-exit
+// failure paths (e.g. k8s unreachable) where there's no per-task tally yet.
 func (s *sqliteStore) UpdateScan(id, status string, finishedAt time.Time) error {
 	_, err := s.db.Exec(
 		`UPDATE scans SET status=?, finished_at=? WHERE id=?`,
 		status, finishedAt, id,
+	)
+	return err
+}
+
+// FinishScan records the real outcome of a scan that ran its tasks to
+// completion: how many failed out of how many, and a short error summary.
+// Callers must derive status from the actual failure count — see
+// handlers/scan.go's classifyStatus — never hardcode "completed".
+func (s *sqliteStore) FinishScan(id, status string, finishedAt time.Time, failedTasks, totalTasks int, errorSummary string) error {
+	_, err := s.db.Exec(
+		`UPDATE scans SET status=?, finished_at=?, failed_tasks=?, total_tasks=?, error_summary=? WHERE id=?`,
+		status, finishedAt, failedTasks, totalTasks, errorSummary, id,
 	)
 	return err
 }
@@ -53,6 +106,7 @@ func (s *sqliteStore) ListScans() ([]ScanRow, error) {
 	rows, err := s.db.Query(`
 		SELECT
 			sc.id, sc.cluster_name, sc.started_at, sc.finished_at, sc.status,
+			sc.failed_tasks, sc.total_tasks, sc.error_summary,
 			COALESCE(SUM(CASE WHEN f.severity='critical' AND f.resolved_at IS NULL THEN 1 ELSE 0 END),0),
 			COALESCE(SUM(CASE WHEN f.severity='high'     AND f.resolved_at IS NULL THEN 1 ELSE 0 END),0),
 			COALESCE(SUM(CASE WHEN f.severity='medium'   AND f.resolved_at IS NULL THEN 1 ELSE 0 END),0),
@@ -74,6 +128,7 @@ func (s *sqliteStore) ListScans() ([]ScanRow, error) {
 		var finishedAt sql.NullTime
 		if err := rows.Scan(
 			&r.ID, &r.ClusterName, &r.StartedAt, &finishedAt, &r.Status,
+			&r.FailedTasks, &r.TotalTasks, &r.ErrorSummary,
 			&r.Critical, &r.High, &r.Medium, &r.Low,
 		); err != nil {
 			return nil, err
@@ -89,9 +144,9 @@ func (s *sqliteStore) ListScans() ([]ScanRow, error) {
 // CreateScanTarget inserts a scan target.
 func (s *sqliteStore) CreateScanTarget(t ScanTarget) error {
 	_, err := s.db.Exec(
-		`INSERT INTO scan_targets (id, scan_id, namespace, deployment, cpu_request_m, cpu_usage_m, mem_request_mi, mem_usage_mi)
-		 VALUES (?,?,?,?,?,?,?,?)`,
-		t.ID, t.ScanID, t.Namespace, t.Deployment,
+		`INSERT INTO scan_targets (id, scan_id, context_name, namespace, deployment, cpu_request_m, cpu_usage_m, mem_request_mi, mem_usage_mi)
+		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.ScanID, t.ContextName, t.Namespace, t.Deployment,
 		t.CPURequestM, t.CPUUsageM, t.MemRequestMi, t.MemUsageMi,
 	)
 	return err
@@ -164,7 +219,7 @@ func (s *sqliteStore) ResolveFinding(id string) error {
 func (s *sqliteStore) GetRadar() ([]RadarRow, error) {
 	rows, err := s.db.Query(`
 		WITH latest AS (
-			SELECT id FROM scans WHERE status='completed' ORDER BY started_at DESC LIMIT 1
+			SELECT id FROM scans WHERE status IN ('completed', 'completed_with_errors') ORDER BY started_at DESC LIMIT 1
 		)
 		SELECT
 			st.namespace,
@@ -192,4 +247,33 @@ func (s *sqliteStore) GetRadar() ([]RadarRow, error) {
 		results = append(results, r)
 	}
 	return results, rows.Err()
+}
+
+// GetSetting returns a stored setting value, or "" if unset.
+func (s *sqliteStore) GetSetting(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+// SetSetting upserts a setting value.
+func (s *sqliteStore) SetSetting(key, value string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO settings (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		key, value,
+	)
+	return err
+}
+
+// DeleteSetting removes a setting (e.g. disconnecting GitHub).
+func (s *sqliteStore) DeleteSetting(key string) error {
+	_, err := s.db.Exec(`DELETE FROM settings WHERE key=?`, key)
+	return err
 }

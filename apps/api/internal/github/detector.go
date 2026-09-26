@@ -26,18 +26,18 @@ import (
 
 // RepoInfo holds the detected GitHub repository for a deployment.
 type RepoInfo struct {
-	Owner    string // GitHub org/user
-	Repo     string // repository name
-	Slug     string // "owner/repo"
-	FullURL  string // https://github.com/owner/repo
-	Source   string // how it was detected: "annotation", "image"
+	Owner   string // GitHub org/user
+	Repo    string // repository name
+	Slug    string // "owner/repo"
+	FullURL string // https://github.com/owner/repo
+	Source  string // how it was detected: "annotation", "image"
 }
 
 // ManifestResult holds fetched source manifests.
 type ManifestResult struct {
-	Repo      RepoInfo
-	Files     []ManifestFile
-	Combined  string // all files concatenated, ready for Bob
+	Repo     RepoInfo
+	Files    []ManifestFile
+	Combined string // all files concatenated, ready for Bob
 }
 
 // ManifestFile is one file fetched from GitHub.

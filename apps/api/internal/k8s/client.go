@@ -3,6 +3,7 @@ package k8s
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -26,12 +27,27 @@ type Manager struct {
 // kubeconfigPath returns the resolved kubeconfig file path.
 func kubeconfigPath(override string) string {
 	if override != "" {
-		return override
+		return expandHome(override)
 	}
 	if v := os.Getenv("KUBECONFIG"); v != "" {
-		return v
+		return expandHome(v)
 	}
 	return os.Getenv("HOME") + "/.kube/config"
+}
+
+// expandHome expands a leading "~/" to $HOME. Neither the OS nor Go's file
+// APIs do shell-style tilde expansion, so a literal "~/.kube/config" (an easy
+// thing to type by habit, and what this project's own .env.example used to
+// default to) would otherwise fail to open as a real path.
+func expandHome(path string) string {
+	if !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home := os.Getenv("HOME")
+	if home == "" {
+		return path
+	}
+	return home + path[1:]
 }
 
 // LoadAll reads the kubeconfig and builds a Client for every context.
