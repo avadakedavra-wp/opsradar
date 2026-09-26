@@ -125,6 +125,182 @@ func (c *Client) GetPodLogs(ctx context.Context, namespace, pod, container strin
 	return buf.String(), scanner.Err()
 }
 
+// PodEvent is a warning or normal event for a pod.
+type PodEvent struct {
+	Type    string `json:"type"`    // Warning | Normal
+	Reason  string `json:"reason"`  // OOMKilled, BackOff, Pulled, ...
+	Message string `json:"message"`
+	Count   int32  `json:"count"`
+	Age     string `json:"age"`
+}
+
+// GetPodEvents returns the most recent events for a specific pod.
+func (c *Client) GetPodEvents(ctx context.Context, namespace, podName string) ([]PodEvent, error) {
+	list, err := c.kube.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + podName,
+	})
+	if err != nil {
+		return nil, err
+	}
+	events := make([]PodEvent, 0, len(list.Items))
+	for _, e := range list.Items {
+		events = append(events, PodEvent{
+			Type:    e.Type,
+			Reason:  e.Reason,
+			Message: e.Message,
+			Count:   e.Count,
+			Age:     shortAge(e.LastTimestamp),
+		})
+	}
+	return events, nil
+}
+
+// TelemetryContext bundles real pod data for Bob's diagnostic context.
+type TelemetryContext struct {
+	Summary  string // one-liner per pod
+	Details  string // full context string ready to inject into the AI prompt
+}
+
+// GetTelemetryContext gathers pod list, events, and logs for troubled pods.
+// It is intentionally capped so the AI context stays under ~6 KB.
+func (c *Client) GetTelemetryContext(ctx context.Context, namespace string) TelemetryContext {
+	pods, err := c.ListPods(ctx, namespace)
+	if err != nil {
+		return TelemetryContext{Summary: "cluster unreachable: " + err.Error()}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("CLUSTER SNAPSHOT (%d pods", len(pods)))
+	if namespace != "" {
+		sb.WriteString(" in namespace " + namespace)
+	}
+	sb.WriteString(")\n\n")
+
+	// Phase counts
+	counts := map[string]int{}
+	for _, p := range pods {
+		counts[p.Phase]++
+	}
+	sb.WriteString(fmt.Sprintf("Status: %d running, %d pending, %d failed, %d succeeded\n\n",
+		counts["Running"], counts["Pending"], counts["Failed"], counts["Succeeded"]))
+
+	// Identify troubled pods: Failed phase, CrashLoop, or high restarts
+	var troubled []PodInfo
+	for _, p := range pods {
+		if p.Phase == "Failed" || p.Phase == "Pending" || p.Restarts >= 1 || !p.Ready {
+			troubled = append(troubled, p)
+		}
+	}
+
+	// Sort: Failed first, then by restart count descending
+	for i := 0; i < len(troubled)-1; i++ {
+		for j := i + 1; j < len(troubled); j++ {
+			pi, pj := troubled[i], troubled[j]
+			iScore := restartScore(pi)
+			jScore := restartScore(pj)
+			if jScore > iScore {
+				troubled[i], troubled[j] = troubled[j], troubled[i]
+			}
+		}
+	}
+
+	const maxPods = 4
+	if len(troubled) > maxPods {
+		troubled = troubled[:maxPods]
+	}
+
+	if len(troubled) == 0 {
+		sb.WriteString("All pods are Running and Ready — no issues detected.\n")
+	} else {
+		sb.WriteString(fmt.Sprintf("TROUBLED PODS (%d):\n\n", len(troubled)))
+		for _, p := range troubled {
+			sb.WriteString(fmt.Sprintf("─── %s/%s ───\n", p.Namespace, p.Name))
+			sb.WriteString(fmt.Sprintf("  Phase: %s | Ready: %v | Restarts: %d\n", p.Phase, p.Ready, p.Restarts))
+			sb.WriteString(fmt.Sprintf("  Images: %s\n", strings.Join(p.Images, ", ")))
+
+			// Events (warnings only)
+			events, err := c.GetPodEvents(ctx, p.Namespace, p.Name)
+			if err == nil {
+				var warnings []string
+				for _, e := range events {
+					if e.Type == "Warning" {
+						warnings = append(warnings, fmt.Sprintf("    [%s ×%d] %s", e.Reason, e.Count, e.Message))
+					}
+				}
+				if len(warnings) > 0 {
+					if len(warnings) > 5 {
+						warnings = warnings[len(warnings)-5:]
+					}
+					sb.WriteString("  Warning Events:\n")
+					for _, w := range warnings {
+						sb.WriteString(w + "\n")
+					}
+				}
+			}
+
+			// Logs (last 60 lines from first container)
+			container := ""
+			if len(p.Containers) > 0 {
+				container = p.Containers[0]
+			}
+			var lines int64 = 60
+			logs, err := c.GetPodLogs(ctx, p.Namespace, p.Name, container, lines)
+			if err == nil && strings.TrimSpace(logs) != "" {
+				logLines := strings.Split(strings.TrimSpace(logs), "\n")
+				// keep last 40 lines to cap context
+				if len(logLines) > 40 {
+					logLines = logLines[len(logLines)-40:]
+				}
+				sb.WriteString(fmt.Sprintf("  Logs (last %d lines, container: %s):\n", len(logLines), container))
+				for _, l := range logLines {
+					sb.WriteString("    " + l + "\n")
+				}
+			} else if err != nil {
+				// Try with previous termination logs (pod may have already crashed)
+				opts := &corev1.PodLogOptions{TailLines: &lines, Previous: true}
+				if container != "" {
+					opts.Container = container
+				}
+				req := c.kube.CoreV1().Pods(p.Namespace).GetLogs(p.Name, opts)
+				if rc, e2 := req.Stream(ctx); e2 == nil {
+					defer rc.Close()
+					var buf bytes.Buffer
+					scanner := bufio.NewScanner(rc)
+					for scanner.Scan() {
+						buf.WriteString("    " + scanner.Text() + "\n")
+					}
+					if buf.Len() > 0 {
+						sb.WriteString(fmt.Sprintf("  Previous container logs:\n%s", buf.String()))
+					}
+				}
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	full := sb.String()
+	// Hard cap: truncate to 6000 chars to stay within reasonable AI context size
+	if len(full) > 6000 {
+		full = full[:6000] + "\n... [truncated for context size]\n"
+	}
+
+	return TelemetryContext{
+		Summary: fmt.Sprintf("%d pods, %d running, %d troubled", len(pods), counts["Running"], len(troubled)),
+		Details: full,
+	}
+}
+
+func restartScore(p PodInfo) int {
+	score := int(p.Restarts) * 10
+	if p.Phase == "Failed" {
+		score += 100
+	}
+	if !p.Ready {
+		score += 20
+	}
+	return score
+}
+
 // RestartDeployment patches the pod template annotation to trigger a rollout.
 func (c *Client) RestartDeployment(ctx context.Context, namespace, deployment string) error {
 	patch := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`,

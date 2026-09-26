@@ -441,6 +441,31 @@ export interface RepoFinding {
   fix: string;
 }
 
+export async function applyRepoFix(opts: {
+  repoPath: string;
+  file: string;
+  fix: string;
+  title: string;
+  detail: string;
+}): Promise<{ ok: boolean; branch: string; pr_url: string; note?: string }> {
+  const res = await fetch(`${API_URL}/github/fix`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({
+      repo_path: opts.repoPath,
+      file: opts.file,
+      fix: opts.fix,
+      title: opts.title,
+      detail: opts.detail,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `POST /github/fix ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function scanGitHubRepos(paths: string[]): Promise<{ findings: RepoFinding[]; repos: string[] }> {
   const res = await fetch(`${API_URL}/github/scan`, {
     method: "POST",

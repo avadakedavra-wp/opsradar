@@ -48,10 +48,21 @@ func RegisterRoutes(r fiber.Router, db store.Store, k8sMgr *k8s.Manager, backend
 	r.Get("/k8s/jobs", kh.ListJobs)
 	r.Get("/k8s/cronjobs", kh.ListCronJobs)
 
+	// Settings — read/write ~/.opsradar/.env
+	r.Get("/settings", GetSettings)
+	r.Post("/settings", SaveSettings)
+	r.Post("/settings/test", TestSetting)
+
 	// Ask Bob
 	r.Post("/bob/chat", bh.Chat)
 
-	// GitHub local repos + AI scan
+	// GitHub local repos + AI scan + auto-fix PR
 	r.Get("/github/repos", ListLocalRepos)
 	r.Post("/github/scan", gh.ScanRepos)
+	r.Post("/github/fix", gh.ApplyRepoFix)
+
+	// GitHub OAuth App flow
+	r.Get("/github/oauth/start", GitHubOAuthStart)
+	r.Get("/github/oauth/callback", GitHubOAuthCallback)
+	r.Get("/github/oauth/status", GitHubOAuthStatus)
 }

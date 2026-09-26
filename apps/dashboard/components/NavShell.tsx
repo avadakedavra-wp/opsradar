@@ -11,8 +11,10 @@ import {
   MessageCircle,
   Radio,
   GitBranch,
+  Settings,
 } from "lucide-react";
 import AskBobSidebar from "@/components/AskBobSidebar";
+import { useBob } from "@/lib/bob-context";
 
 const NAV = [
   { href: "/",                label: "Radar",    Icon: Activity    },
@@ -52,7 +54,7 @@ function NavItem({
 }
 
 export default function NavShell({ children }: { children: React.ReactNode }) {
-  const [bobOpen, setBobOpen] = useState(false);
+  const { open: bobOpen, podFocus: bobPodFocus, openBob, closeBob } = useBob();
   const pathname = usePathname();
 
   const isActive = (href: string) =>
@@ -86,10 +88,10 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        {/* Ask Bob — pinned to bottom */}
-        <div className="p-2 border-t border-[#21262d] shrink-0">
+        {/* Bottom actions */}
+        <div className="p-2 border-t border-[#21262d] shrink-0 space-y-0.5">
           <button
-            onClick={() => setBobOpen(true)}
+            onClick={() => openBob()}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1c2128] transition-colors"
           >
             <MessageCircle size={15} />
@@ -98,6 +100,7 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
               AI
             </span>
           </button>
+          <NavItem href="/settings" label="Settings" Icon={Settings} active={isActive("/settings")} />
         </div>
       </aside>
 
@@ -107,7 +110,7 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Ask Bob overlay panel */}
-      <AskBobSidebar open={bobOpen} onClose={() => setBobOpen(false)} />
+      <AskBobSidebar open={bobOpen} onClose={closeBob} podFocus={bobPodFocus} />
     </div>
   );
 }

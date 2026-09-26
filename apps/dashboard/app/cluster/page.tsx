@@ -1,26 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   listContexts, listNamespaces, listPods,
+  listDeployments, listDaemonSets, listStatefulSets,
+  listReplicaSets, listJobs, listCronJobs,
   restartDeployment, scaleDeployment, deletePod,
-  PodInfo,
+  PodInfo, WorkloadInfo, JobInfo, CronJobInfo,
 } from "@/lib/api";
 import PodDetailPanel from "@/components/PodDetailPanel";
+import { useBob } from "@/lib/bob-context";
 import {
-  AlertCircle, CheckCircle, X, Layers, ChevronDown,
-  LayoutDashboard, Box, Cpu, Database, Globe, Shield, Briefcase, Clock,
+  AlertCircle, CheckCircle, X, ChevronDown,
+  LayoutDashboard, Box, Cpu, Database, Globe, Briefcase, Clock,
+  RefreshCw, MessageCircle,
 } from "lucide-react";
 
 const SUB_NAV = [
-  { id: "overview",    label: "Overview",                Icon: LayoutDashboard },
-  { id: "pods",        label: "Pods",                   Icon: Box             },
-  { id: "deployments", label: "Deployments",            Icon: Cpu             },
-  { id: "daemonsets",  label: "Daemon Sets",            Icon: Database        },
-  { id: "statefulsets",label: "Stateful Sets",          Icon: Database        },
-  { id: "replicasets", label: "Replica Sets",           Icon: Globe           },
-  { id: "jobs",        label: "Jobs",                   Icon: Briefcase       },
-  { id: "cronjobs",    label: "Cron Jobs",              Icon: Clock           },
+  { id: "overview",    label: "Overview",     Icon: LayoutDashboard },
+  { id: "pods",        label: "Pods",         Icon: Box             },
+  { id: "deployments", label: "Deployments",  Icon: Cpu             },
+  { id: "daemonsets",  label: "Daemon Sets",  Icon: Database        },
+  { id: "statefulsets",label: "Stateful Sets",Icon: Database        },
+  { id: "replicasets", label: "Replica Sets", Icon: Globe           },
+  { id: "jobs",        label: "Jobs",         Icon: Briefcase       },
+  { id: "cronjobs",    label: "Cron Jobs",    Icon: Clock           },
 ];
 
 function PhaseDot({ phase }: { phase: string }) {
@@ -37,38 +41,254 @@ function PhaseDot({ phase }: { phase: string }) {
   );
 }
 
+function ReadyBadge({ ready, ok }: { ready: string; ok?: boolean }) {
+  const color = ok === false ? "#f85149" : ok === true ? "#3fb950" : "#8b949e";
+  return <span className="font-mono text-[11px]" style={{ color }}>{ready}</span>;
+}
+
+// ── Workload table for Deployments / DaemonSets / StatefulSets / ReplicaSets ──
+function WorkloadTable({ items, loading, error }: {
+  items: WorkloadInfo[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (error) return (
+    <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md m-5 px-3 py-2">
+      <AlertCircle size={12} /> {error}
+    </div>
+  );
+  if (loading) return (
+    <div className="flex items-center justify-center h-full text-xs text-[#8b949e]">Loading…</div>
+  );
+  if (items.length === 0) return (
+    <div className="flex items-center justify-center h-full text-xs text-[#8b949e] border border-dashed border-[#21262d] rounded-lg m-5">
+      No resources found.
+    </div>
+  );
+
+  return (
+    <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+      <thead className="sticky top-0 z-10">
+        <tr className="bg-[#161b22] border-b border-[#21262d]">
+          <th className="text-left px-4 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Name</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden sm:table-cell">Namespace</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Ready</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden md:table-cell">Image</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Age</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((w, idx) => {
+          const [readyStr, totalStr] = w.ready.split("/");
+          const ready = parseInt(readyStr ?? "0");
+          const total = parseInt(totalStr ?? "0");
+          const ok = total > 0 ? ready === total : undefined;
+          return (
+            <tr
+              key={w.name}
+              className={`border-b border-[#21262d] ${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22] transition-colors`}
+            >
+              <td className="px-4 py-2.5 font-mono text-[#e6edf3] truncate max-w-[220px]" title={w.name}>{w.name}</td>
+              <td className="px-3 py-2.5 font-mono text-[#388bfd] hidden sm:table-cell">{w.namespace}</td>
+              <td className="px-3 py-2.5"><ReadyBadge ready={w.ready} ok={ok} /></td>
+              <td className="px-3 py-2.5 font-mono text-[#8b949e] truncate max-w-[200px] hidden md:table-cell" title={w.image}>
+                {w.image ? w.image.split("/").pop() : "—"}
+              </td>
+              <td className="px-3 py-2.5 text-[#8b949e]">{w.age}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Jobs table ────────────────────────────────────────────────────────────────
+function JobsTable({ items, loading, error }: {
+  items: JobInfo[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (error) return (
+    <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md m-5 px-3 py-2">
+      <AlertCircle size={12} /> {error}
+    </div>
+  );
+  if (loading) return <div className="flex items-center justify-center h-full text-xs text-[#8b949e]">Loading…</div>;
+  if (items.length === 0) return (
+    <div className="flex items-center justify-center h-full text-xs text-[#8b949e] border border-dashed border-[#21262d] rounded-lg m-5">No jobs found.</div>
+  );
+
+  const statusColor = (s: string) => s === "Complete" ? "#3fb950" : s === "Failed" ? "#f85149" : "#e3b341";
+
+  return (
+    <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+      <thead className="sticky top-0 z-10">
+        <tr className="bg-[#161b22] border-b border-[#21262d]">
+          <th className="text-left px-4 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Name</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden sm:table-cell">Namespace</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Completions</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Status</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden md:table-cell">Duration</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Age</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((j, idx) => (
+          <tr key={j.name} className={`border-b border-[#21262d] ${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22] transition-colors`}>
+            <td className="px-4 py-2.5 font-mono text-[#e6edf3] truncate max-w-[220px]" title={j.name}>{j.name}</td>
+            <td className="px-3 py-2.5 font-mono text-[#388bfd] hidden sm:table-cell">{j.namespace}</td>
+            <td className="px-3 py-2.5 font-mono text-[#8b949e]">{j.completions}</td>
+            <td className="px-3 py-2.5">
+              <span className="text-[11px] font-medium" style={{ color: statusColor(j.status) }}>{j.status}</span>
+            </td>
+            <td className="px-3 py-2.5 text-[#8b949e] hidden md:table-cell">{j.duration}</td>
+            <td className="px-3 py-2.5 text-[#8b949e]">{j.age}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ── CronJobs table ────────────────────────────────────────────────────────────
+function CronJobsTable({ items, loading, error }: {
+  items: CronJobInfo[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (error) return (
+    <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md m-5 px-3 py-2">
+      <AlertCircle size={12} /> {error}
+    </div>
+  );
+  if (loading) return <div className="flex items-center justify-center h-full text-xs text-[#8b949e]">Loading…</div>;
+  if (items.length === 0) return (
+    <div className="flex items-center justify-center h-full text-xs text-[#8b949e] border border-dashed border-[#21262d] rounded-lg m-5">No cron jobs found.</div>
+  );
+
+  return (
+    <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+      <thead className="sticky top-0 z-10">
+        <tr className="bg-[#161b22] border-b border-[#21262d]">
+          <th className="text-left px-4 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Name</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden sm:table-cell">Namespace</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Schedule</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden sm:table-cell">Active</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden md:table-cell">Last Run</th>
+          <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Age</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((cj, idx) => (
+          <tr key={cj.name} className={`border-b border-[#21262d] ${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22] transition-colors`}>
+            <td className="px-4 py-2.5 font-mono text-[#e6edf3] truncate max-w-[220px]" title={cj.name}>
+              {cj.name}
+              {cj.suspend && <span className="ml-2 text-[10px] text-[#e3b341] border border-[#e3b341]/30 rounded px-1">suspended</span>}
+            </td>
+            <td className="px-3 py-2.5 font-mono text-[#388bfd] hidden sm:table-cell">{cj.namespace}</td>
+            <td className="px-3 py-2.5 font-mono text-[#8b949e]">{cj.schedule}</td>
+            <td className="px-3 py-2.5 font-mono hidden sm:table-cell">
+              {cj.active > 0
+                ? <span className="text-[#3fb950]">{cj.active}</span>
+                : <span className="text-[#484f58]">0</span>}
+            </td>
+            <td className="px-3 py-2.5 text-[#8b949e] hidden md:table-cell">{cj.last_run}</td>
+            <td className="px-3 py-2.5 text-[#8b949e]">{cj.age}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────────
+function OverviewPanel({ pods, deployments, daemonsets, statefulsets, jobs, cronjobs, loading }: {
+  pods: PodInfo[];
+  deployments: WorkloadInfo[];
+  daemonsets: WorkloadInfo[];
+  statefulsets: WorkloadInfo[];
+  jobs: JobInfo[];
+  cronjobs: CronJobInfo[];
+  loading: boolean;
+}) {
+  const stat = (label: string, value: number | string, color?: string) => (
+    <div className="bg-[#161b22] border border-[#21262d] rounded-lg px-4 py-3">
+      <div className="text-[20px] font-bold font-mono" style={{ color: color ?? "#f0f6fc" }}>{value}</div>
+      <div className="text-[10px] text-[#8b949e] mt-0.5 uppercase tracking-wider">{label}</div>
+    </div>
+  );
+
+  const running = pods.filter(p => p.phase === "Running").length;
+  const failed  = pods.filter(p => p.phase === "Failed").length;
+  const depReady = deployments.filter(d => { const [r, t] = d.ready.split("/"); return r === t && parseInt(t) > 0; }).length;
+  const jobsFailed = jobs.filter(j => j.status === "Failed").length;
+
+  return loading ? (
+    <div className="flex items-center justify-center h-full text-xs text-[#8b949e]">Loading…</div>
+  ) : (
+    <div className="p-5 space-y-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {stat("Pods", pods.length)}
+        {stat("Running", running, "#3fb950")}
+        {stat("Failed", failed, failed > 0 ? "#f85149" : "#484f58")}
+        {stat("Deployments", deployments.length)}
+        {stat("Ready", depReady, depReady === deployments.length ? "#3fb950" : "#e3b341")}
+        {stat("Cron Jobs", cronjobs.length)}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {stat("Daemon Sets", daemonsets.length)}
+        {stat("Stateful Sets", statefulsets.length)}
+        {stat("Jobs", jobs.length)}
+        {stat("Jobs Failed", jobsFailed, jobsFailed > 0 ? "#f85149" : "#484f58")}
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function ClusterPage() {
-  const [view, setView]           = useState("pods");
-  const [contexts, setContexts]   = useState<string[]>([]);
-  const [context, setContext]     = useState("");
+  const { openBob } = useBob();
+  const [view, setView]             = useState("pods");
+  const [contexts, setContexts]     = useState<string[]>([]);
+  const [context, setContext]       = useState("");
   const [namespaces, setNamespaces] = useState<string[]>([]);
-  const [namespace, setNamespace] = useState("");
-  const [pods, setPods]           = useState<PodInfo[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
-  const [selected, setSelected]   = useState<PodInfo | null>(null);
-  const [toast, setToast]         = useState<{ text: string; ok: boolean } | null>(null);
+  const [namespace, setNamespace]   = useState("");
 
-  // Scale modal state
-  const [scaleTarget, setScaleTarget] = useState<{ ns: string; dep: string } | null>(null);
-  const [scaleValue, setScaleValue]   = useState(2);
-  // Delete confirm
-  const [confirmDelete, setConfirmDelete] = useState<PodInfo | null>(null);
+  const [pods,         setPods]         = useState<PodInfo[]>([]);
+  const [deployments,  setDeployments]  = useState<WorkloadInfo[]>([]);
+  const [daemonsets,   setDaemonsets]   = useState<WorkloadInfo[]>([]);
+  const [statefulsets, setStatefulsets] = useState<WorkloadInfo[]>([]);
+  const [replicasets,  setReplicasets]  = useState<WorkloadInfo[]>([]);
+  const [jobs,         setJobs]         = useState<JobInfo[]>([]);
+  const [cronjobs,     setCronjobs]     = useState<CronJobInfo[]>([]);
 
-  useEffect(() => {
-    listContexts().then(setContexts).catch(() => {});
-  }, []);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+  const [selected, setSelected] = useState<PodInfo | null>(null);
+  const [toast,    setToast]    = useState<{ text: string; ok: boolean } | null>(null);
 
-  useEffect(() => {
-    listNamespaces(context).then(setNamespaces).catch(() => {});
-  }, [context]);
+  const [scaleTarget,    setScaleTarget]   = useState<{ ns: string; dep: string } | null>(null);
+  const [scaleValue,     setScaleValue]    = useState(2);
+  const [confirmDelete,  setConfirmDelete] = useState<PodInfo | null>(null);
 
-  useEffect(() => {
+  useEffect(() => { listContexts().then(setContexts).catch(() => {}); }, []);
+  useEffect(() => { listNamespaces(context).then(setNamespaces).catch(() => {}); }, [context]);
+
+  const loadAll = useCallback(() => {
     setLoading(true); setError(null);
-    listPods(namespace, context)
-      .then(p  => { setPods(p);  setLoading(false); })
-      .catch(e => { setError(String(e)); setLoading(false); });
+    Promise.all([
+      listPods(namespace, context).then(setPods).catch(e => setError(String(e))),
+      listDeployments(namespace, context).then(setDeployments).catch(() => {}),
+      listDaemonSets(namespace, context).then(setDaemonsets).catch(() => {}),
+      listStatefulSets(namespace, context).then(setStatefulsets).catch(() => {}),
+      listReplicaSets(namespace, context).then(setReplicasets).catch(() => {}),
+      listJobs(namespace, context).then(setJobs).catch(() => {}),
+      listCronJobs(namespace, context).then(setCronjobs).catch(() => {}),
+    ]).finally(() => setLoading(false));
   }, [namespace, context]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   function notify(text: string, ok = true) {
     setToast({ text, ok });
@@ -110,10 +330,22 @@ export default function ClusterPage() {
   const pending = pods.filter(p => p.phase === "Pending").length;
   const failed  = pods.filter(p => p.phase === "Failed").length;
 
+  // header subtitle varies by view
+  const subtitle: Record<string, string> = {
+    pods:         `${pods.length} total · ${running} running${pending > 0 ? ` · ${pending} pending` : ""}${failed > 0 ? ` · ${failed} failed` : ""}`,
+    deployments:  `${deployments.length} deployments`,
+    daemonsets:   `${daemonsets.length} daemon sets`,
+    statefulsets: `${statefulsets.length} stateful sets`,
+    replicasets:  `${replicasets.length} replica sets`,
+    jobs:         `${jobs.length} jobs`,
+    cronjobs:     `${cronjobs.length} cron jobs`,
+    overview:     "Cluster summary",
+  };
+
   return (
     <div className="flex h-full overflow-hidden">
 
-      {/* ── Sub-navigation ── */}
+      {/* ── Sub-nav ── */}
       <nav className="w-44 shrink-0 bg-[#0d1117] border-r border-[#21262d] py-3 overflow-y-auto">
         <div className="px-3 mb-2">
           <span className="text-[9px] font-semibold text-[#484f58] uppercase tracking-widest">Workloads</span>
@@ -134,50 +366,48 @@ export default function ClusterPage() {
         ))}
       </nav>
 
-      {/* ── Main area ── */}
+      {/* ── Main ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-        {/* Page header */}
+        {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-[#21262d] bg-[#0d1117]">
           <div>
-            <h1 className="text-sm font-semibold text-[#f0f6fc] capitalize">{view}</h1>
-            {view === "pods" && (
-              <p className="text-[10px] text-[#8b949e] mt-0.5">
-                {pods.length} total ·{" "}
-                <span className="text-[#3fb950]">{running} running</span>
-                {pending > 0 && <span className="text-[#e3b341] ml-1.5">{pending} pending</span>}
-                {failed  > 0 && <span className="text-[#f85149] ml-1.5">{failed} failed</span>}
-              </p>
-            )}
+            <h1 className="text-sm font-semibold text-[#f0f6fc] capitalize">{view.replace("sets", " Sets").replace("jobs", " Jobs")}</h1>
+            <p className="text-[10px] text-[#8b949e] mt-0.5">{subtitle[view] ?? ""}</p>
           </div>
-          {view === "pods" && (
-            <div className="flex items-center gap-2">
-              {contexts.length > 1 && (
-                <div className="relative">
-                  <select
-                    value={context}
-                    onChange={e => { setContext(e.target.value); setNamespace(""); }}
-                    className="appearance-none text-[11px] bg-[#161b22] border border-[#388bfd]/40 rounded-md pl-3 pr-6 py-1.5 text-[#f0f6fc] focus:outline-none focus:border-[#388bfd] cursor-pointer"
-                  >
-                    <option value="">All contexts</option>
-                    {contexts.map(ctx => <option key={ctx} value={ctx}>{ctx}</option>)}
-                  </select>
-                  <ChevronDown size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#8b949e]" />
-                </div>
-              )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadAll}
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw size={12} />
+            </button>
+            {contexts.length > 1 && (
               <div className="relative">
                 <select
-                  value={namespace}
-                  onChange={e => setNamespace(e.target.value)}
-                  className="appearance-none text-[11px] bg-[#161b22] border border-[#30363d] rounded-md pl-3 pr-6 py-1.5 text-[#f0f6fc] focus:outline-none focus:border-[#388bfd] cursor-pointer"
+                  value={context}
+                  onChange={e => { setContext(e.target.value); setNamespace(""); }}
+                  className="appearance-none text-[11px] bg-[#161b22] border border-[#388bfd]/40 rounded-md pl-3 pr-6 py-1.5 text-[#f0f6fc] focus:outline-none focus:border-[#388bfd] cursor-pointer"
                 >
-                  <option value="">All namespaces</option>
-                  {namespaces.map(ns => <option key={ns} value={ns}>{ns}</option>)}
+                  <option value="">All contexts</option>
+                  {contexts.map(ctx => <option key={ctx} value={ctx}>{ctx}</option>)}
                 </select>
                 <ChevronDown size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#8b949e]" />
               </div>
+            )}
+            <div className="relative">
+              <select
+                value={namespace}
+                onChange={e => setNamespace(e.target.value)}
+                className="appearance-none text-[11px] bg-[#161b22] border border-[#30363d] rounded-md pl-3 pr-6 py-1.5 text-[#f0f6fc] focus:outline-none focus:border-[#388bfd] cursor-pointer"
+              >
+                <option value="">All namespaces</option>
+                {namespaces.map(ns => <option key={ns} value={ns}>{ns}</option>)}
+              </select>
+              <ChevronDown size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#8b949e]" />
             </div>
-          )}
+          </div>
         </div>
 
         {/* Toast */}
@@ -192,88 +422,106 @@ export default function ClusterPage() {
           </div>
         )}
 
-        {/* Content + detail panel side by side */}
+        {/* Content */}
         <div className="flex-1 flex min-h-0 overflow-hidden">
-
-          {/* ── Content ── */}
           <div className="flex-1 overflow-y-auto min-w-0">
-            {view !== "pods" ? (
-              <div className="flex items-center justify-center h-full text-xs text-[#484f58]">
-                No data for {view} yet.
-              </div>
-            ) : error ? (
-              <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md m-5 px-3 py-2">
-                <AlertCircle size={12} /> {error}
-              </div>
-            ) : loading ? (
-              <div className="flex items-center justify-center h-full text-xs text-[#8b949e]">Loading pods…</div>
-            ) : pods.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-xs text-[#8b949e] border border-dashed border-[#21262d] rounded-lg m-5">
-                No pods{namespace ? ` in "${namespace}"` : ""}.
-              </div>
-            ) : (
-              <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
-                <thead className="sticky top-0 z-10">
-                  <tr className="bg-[#161b22] border-b border-[#21262d]">
-                    <th className="text-left px-4 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Name</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden sm:table-cell">Namespace</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden md:table-cell">Containers</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Status</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden sm:table-cell">Restarts</th>
-                    <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden lg:table-cell">Node</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pods.map((pod, idx) => {
-                    const isSelected = selected?.name === pod.name;
-                    return (
-                      <tr
-                        key={pod.name}
-                        onClick={() => setSelected(isSelected ? null : pod)}
-                        className={`border-b border-[#21262d] cursor-pointer transition-colors ${
-                          isSelected
-                            ? "bg-[#1f6feb]/15 border-l-2 border-l-[#388bfd]"
-                            : idx % 2 === 0
-                              ? "bg-[#0d1117] hover:bg-[#161b22]"
-                              : "bg-[#0f1319] hover:bg-[#161b22]"
-                        }`}
-                      >
-                        <td className="px-4 py-2.5 font-mono text-[#e6edf3] truncate max-w-[200px]" title={pod.name}>
-                          {pod.name}
-                        </td>
-                        <td className="px-3 py-2.5 font-mono text-[#388bfd] hidden sm:table-cell">
-                          {pod.namespace}
-                        </td>
-                        <td className="px-3 py-2.5 text-[#8b949e] hidden md:table-cell">
-                          {pod.containers.length}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <PhaseDot phase={pod.phase} />
-                        </td>
-                        <td className="px-3 py-2.5 font-mono hidden sm:table-cell">
-                          {pod.restarts > 0
-                            ? <span className="text-[#e3b341]">{pod.restarts}</span>
-                            : <span className="text-[#484f58]">0</span>
-                          }
-                        </td>
-                        <td className="px-3 py-2.5 text-[#8b949e] font-mono truncate max-w-[120px] hidden lg:table-cell" title={pod.node_name}>
-                          {pod.node_name || "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            {view === "overview" && (
+              <OverviewPanel
+                pods={pods} deployments={deployments} daemonsets={daemonsets}
+                statefulsets={statefulsets} jobs={jobs} cronjobs={cronjobs}
+                loading={loading}
+              />
             )}
+            {view === "pods" && (
+              error ? (
+                <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md m-5 px-3 py-2">
+                  <AlertCircle size={12} /> {error}
+                </div>
+              ) : loading ? (
+                <div className="flex items-center justify-center h-full text-xs text-[#8b949e]">Loading pods…</div>
+              ) : pods.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-xs text-[#8b949e] border border-dashed border-[#21262d] rounded-lg m-5">
+                  No pods{namespace ? ` in "${namespace}"` : ""}.
+                </div>
+              ) : (
+                <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-[#161b22] border-b border-[#21262d]">
+                      <th className="text-left px-4 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Name</th>
+                      <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden sm:table-cell">Namespace</th>
+                      <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden md:table-cell">Containers</th>
+                      <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider">Status</th>
+                      <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden sm:table-cell">Restarts</th>
+                      <th className="text-left px-3 py-2.5 text-[10px] text-[#8b949e] font-medium uppercase tracking-wider hidden lg:table-cell">Node</th>
+                      <th className="px-3 py-2.5" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pods.map((pod, idx) => {
+                      const isSelected = selected?.name === pod.name;
+                      const isTroubled = pod.phase !== "Running" || pod.restarts > 0 || !pod.ready;
+                      return (
+                        <tr
+                          key={pod.name}
+                          onClick={() => setSelected(isSelected ? null : pod)}
+                          className={`border-b border-[#21262d] cursor-pointer transition-colors group ${
+                            isSelected
+                              ? "bg-[#1f6feb]/15 border-l-2 border-l-[#388bfd]"
+                              : idx % 2 === 0
+                                ? "bg-[#0d1117] hover:bg-[#161b22]"
+                                : "bg-[#0f1319] hover:bg-[#161b22]"
+                          }`}
+                        >
+                          <td className="px-4 py-2.5 font-mono text-[#e6edf3] truncate max-w-[200px]" title={pod.name}>{pod.name}</td>
+                          <td className="px-3 py-2.5 font-mono text-[#388bfd] hidden sm:table-cell">{pod.namespace}</td>
+                          <td className="px-3 py-2.5 text-[#8b949e] hidden md:table-cell">{pod.containers.length}</td>
+                          <td className="px-3 py-2.5"><PhaseDot phase={pod.phase} /></td>
+                          <td className="px-3 py-2.5 font-mono hidden sm:table-cell">
+                            {pod.restarts > 0
+                              ? <span className="text-[#e3b341]">{pod.restarts}</span>
+                              : <span className="text-[#484f58]">0</span>}
+                          </td>
+                          <td className="px-3 py-2.5 text-[#8b949e] font-mono truncate max-w-[120px] hidden lg:table-cell" title={pod.node_name}>
+                            {pod.node_name || "—"}
+                          </td>
+                          <td className="px-2 py-2.5 text-right">
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                openBob({ namespace: pod.namespace, pod: pod.name, k8sContext: context });
+                              }}
+                              title="Ask Bob about this pod"
+                              className={`opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-all ${
+                                isTroubled
+                                  ? "text-[#f85149] border border-[#f85149]/30 hover:bg-[#f85149]/10"
+                                  : "text-[#8b949e] border border-[#30363d] hover:text-[#388bfd] hover:border-[#388bfd]/30"
+                              }`}
+                            >
+                              <MessageCircle size={9} /> Bob
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )
+            )}
+            {view === "deployments"  && <WorkloadTable items={deployments}  loading={loading} error={error} />}
+            {view === "daemonsets"   && <WorkloadTable items={daemonsets}   loading={loading} error={error} />}
+            {view === "statefulsets" && <WorkloadTable items={statefulsets} loading={loading} error={error} />}
+            {view === "replicasets"  && <WorkloadTable items={replicasets}  loading={loading} error={error} />}
+            {view === "jobs"         && <JobsTable     items={jobs}         loading={loading} error={error} />}
+            {view === "cronjobs"     && <CronJobsTable items={cronjobs}     loading={loading} error={error} />}
           </div>
 
-          {/* ── Pod detail panel ── */}
-          {selected && (
+          {/* Pod detail panel */}
+          {selected && view === "pods" && (
             <div className="w-[340px] shrink-0 overflow-hidden border-l border-[#21262d]">
               <PodDetailPanel
                 pod={selected}
                 onClose={() => setSelected(null)}
-                onRestart={p => { handleRestart(p); }}
+                onRestart={p => handleRestart(p)}
                 onScale={p => handleScale(p)}
                 onDelete={p => setConfirmDelete(p)}
               />
@@ -284,10 +532,8 @@ export default function ClusterPage() {
 
       {/* Scale modal */}
       {scaleTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
-          onClick={e => { if (e.target === e.currentTarget) setScaleTarget(null); }}
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
+          onClick={e => { if (e.target === e.currentTarget) setScaleTarget(null); }}>
           <div className="bg-[#161b22] border border-[#21262d] rounded-lg shadow-2xl p-5 w-full max-w-xs space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-[#f0f6fc]">Scale Deployment</h3>
@@ -296,11 +542,9 @@ export default function ClusterPage() {
             <p className="text-xs text-[#8b949e] font-mono">{scaleTarget.ns}/{scaleTarget.dep}</p>
             <div className="flex items-center gap-3">
               <label className="text-xs text-[#8b949e]">Replicas</label>
-              <input
-                type="number" min={0} max={50} value={scaleValue}
+              <input type="number" min={0} max={50} value={scaleValue}
                 onChange={e => setScaleValue(Number(e.target.value))}
-                className="w-20 bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-1.5 text-sm text-[#f0f6fc] focus:outline-none focus:border-[#388bfd]"
-              />
+                className="w-20 bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-1.5 text-sm text-[#f0f6fc] focus:outline-none focus:border-[#388bfd]" />
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setScaleTarget(null)} className="text-xs px-3 py-1.5 border border-[#30363d] text-[#8b949e] rounded-md hover:bg-[#21262d] transition-colors">Cancel</button>
@@ -312,10 +556,8 @@ export default function ClusterPage() {
 
       {/* Delete confirm */}
       {confirmDelete && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
-          onClick={e => { if (e.target === e.currentTarget) setConfirmDelete(null); }}
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
+          onClick={e => { if (e.target === e.currentTarget) setConfirmDelete(null); }}>
           <div className="bg-[#161b22] border border-[#21262d] rounded-lg shadow-2xl p-5 w-full max-w-xs space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-[#f0f6fc]">Delete Pod</h3>

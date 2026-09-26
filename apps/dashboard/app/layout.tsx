@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import NavShell from "@/components/NavShell";
+import { BobProvider } from "@/lib/bob-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,7 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${geistSans.variable} ${geistMono.variable} h-full`}
     >
       <body className="h-full overflow-hidden bg-[#0d1117] text-[#f0f6fc] antialiased">
-        <NavShell>{children}</NavShell>
+        <BobProvider>
+          <NavShell>{children}</NavShell>
+        </BobProvider>
       </body>
     </html>
   );

@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { scanGitHubRepos, listLocalRepos, LocalRepo, RepoFinding } from "@/lib/api";
+import { useState, useEffect, useCallback } from "react";
+import { scanGitHubRepos, listLocalRepos, applyRepoFix, LocalRepo, RepoFinding } from "@/lib/api";
 import {
-  GitBranch, Workflow, FolderOpen, Plus, X, Zap,
+  GitBranch, FolderOpen, Plus, X, Zap,
   AlertCircle, ChevronRight, ChevronDown, FolderSearch,
   FileCode2, Copy, CheckCheck, ShieldAlert, CircleDot,
-  Info, TriangleAlert, OctagonX, Layers,
+  Info, TriangleAlert, OctagonX, Layers, GitPullRequest, Loader,
 } from "lucide-react";
 
 // ── Severity helpers ────────────────────────────────────────────────────────
@@ -26,21 +26,35 @@ function SevIcon({ severity, size = 13 }: { severity: string; size?: number }) {
   return <span style={{ color: s.color, display: "inline-flex" }}><s.Icon size={size} /></span>;
 }
 
-function sevLabel(sev: string, count: number) {
-  return `${count} ${sev}`;
-}
-
 // ── FindingRow ───────────────────────────────────────────────────────────────
 
-function FindingRow({ f }: { f: RepoFinding }) {
-  const [open, setOpen] = useState(false);
+function FindingRow({ f, repoPath }: { f: RepoFinding; repoPath: string }) {
+  const [open, setOpen]     = useState(false);
   const [copied, setCopied] = useState(false);
+  const [prState, setPrState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [prUrl,   setPrUrl]   = useState("");
+  const [prNote,  setPrNote]  = useState("");
 
   function copyFix() {
     navigator.clipboard.writeText(f.fix).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     });
+  }
+
+  async function createPR(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!repoPath) { setPrNote("Repo path unknown — re-add the repo."); setPrState("error"); return; }
+    setPrState("loading");
+    try {
+      const res = await applyRepoFix({ repoPath, file: f.file, fix: f.fix, title: f.title, detail: f.detail });
+      setPrUrl(res.pr_url);
+      setPrNote(res.note ?? "");
+      setPrState("done");
+    } catch (err: unknown) {
+      setPrNote(String(err));
+      setPrState("error");
+    }
   }
 
   const s = SEV[f.severity] ?? SEV.info;
@@ -52,25 +66,19 @@ function FindingRow({ f }: { f: RepoFinding }) {
     >
       {/* Row */}
       <div
-        className="flex items-start gap-3 px-4 py-2 hover:bg-[#161b22] transition-colors group"
+        className="flex items-start gap-3 px-4 py-2 hover:bg-[#161b22] transition-colors"
         style={open ? { background: "#161b22", borderLeft: `2px solid ${s.color}` } : undefined}
       >
-        {/* expand chevron */}
         <span className="mt-0.5 shrink-0 text-[#484f58]">
           {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         </span>
-
-        {/* severity icon */}
         <span className="mt-0.5 shrink-0"><SevIcon severity={f.severity} size={13} /></span>
-
-        {/* title + metadata */}
         <div className="flex-1 min-w-0">
           <p className="text-[13px] text-[#e6edf3] leading-snug">{f.title}</p>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             {f.file && (
               <span className="flex items-center gap-1 text-[11px] text-[#8b949e] font-mono">
-                <FileCode2 size={10} />
-                {f.file}
+                <FileCode2 size={10} /> {f.file}
               </span>
             )}
             <span
@@ -81,8 +89,6 @@ function FindingRow({ f }: { f: RepoFinding }) {
             </span>
           </div>
         </div>
-
-        {/* repo badge */}
         <span className="shrink-0 text-[10px] font-mono text-[#484f58] hidden sm:block">{f.repo}</span>
       </div>
 
@@ -90,6 +96,7 @@ function FindingRow({ f }: { f: RepoFinding }) {
       {open && (
         <div className="px-4 pt-0 pb-3 ml-[44px] space-y-3 bg-[#161b22]" onClick={e => e.stopPropagation()}>
           <p className="text-xs text-[#8b949e] leading-relaxed">{f.detail}</p>
+
           {f.fix && (
             <div className="rounded border border-[#21262d] overflow-hidden">
               <div className="flex items-center justify-between px-3 py-1.5 bg-[#1c2128] border-b border-[#21262d]">
@@ -107,16 +114,92 @@ function FindingRow({ f }: { f: RepoFinding }) {
               </pre>
             </div>
           )}
+
+          {/* Create PR row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {prState !== "done" && (
+              <button
+                onClick={createPR}
+                disabled={prState === "loading"}
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border border-[#238636]/50 text-[#3fb950] hover:bg-[#238636]/10 disabled:opacity-50 transition-colors"
+              >
+                {prState === "loading"
+                  ? <><Loader size={10} className="animate-spin" /> Creating PR…</>
+                  : <><GitPullRequest size={10} /> Create PR</>
+                }
+              </button>
+            )}
+            {prState === "done" && prUrl && (
+              <a
+                href={prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border border-[#388bfd]/40 text-[#388bfd] hover:bg-[#388bfd]/10 transition-colors"
+                onClick={e => e.stopPropagation()}
+              >
+                <GitPullRequest size={10} /> View PR
+              </a>
+            )}
+            {prState === "done" && !prUrl && (
+              <span className="text-[10px] text-[#3fb950] flex items-center gap-1">
+                <CheckCheck size={10} /> Branch pushed
+              </span>
+            )}
+            {prNote && (
+              <span className={`text-[10px] ${prState === "error" ? "text-[#f85149]" : "text-[#484f58]"}`}>
+                {prNote}
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
+// ── Scan sessions (VSCode-style tabs, persisted to localStorage) ──────────────
+
+interface ScanSession {
+  id: string;
+  ts: number;                       // last updated
+  repos: LocalRepo[];               // the working set for this tab
+  findings: RepoFinding[] | null;   // null = draft (not scanned yet)
+}
+
+const SESSIONS_KEY = "opsradar_github_sessions";
+const ACTIVE_KEY   = "opsradar_github_active";
+
+function loadSessions(): ScanSession[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(SESSIONS_KEY) ?? "[]"); } catch { return []; }
+}
+
+function persistSessions(sessions: ScanSession[]) {
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.slice(0, 30)));
+}
+
+function newDraft(): ScanSession {
+  return {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    ts: Date.now(),
+    repos: [],
+    findings: null,
+  };
+}
+
+function tabLabel(s: ScanSession): string {
+  if (s.repos.length === 0) return "New scan";
+  if (s.repos.length === 1) return s.repos[0].name;
+  return `${s.repos[0].name} +${s.repos.length - 1}`;
+}
+
 // ── Main page ───────────────────────────────────────────────────────────────
 
 export default function GitHubPage() {
-  const [addedRepos, setAddedRepos]     = useState<LocalRepo[]>([]);
+  const [sessions, setSessions] = useState<ScanSession[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
+  const [hydrated, setHydrated] = useState(false);
+
   const [pathInput, setPathInput]       = useState("");
   const [addError, setAddError]         = useState<string | null>(null);
   const [addLoading, setAddLoading]     = useState(false);
@@ -128,23 +211,85 @@ export default function GitHubPage() {
 
   const [scanning, setScanning]     = useState(false);
   const [scanError, setScanError]   = useState<string | null>(null);
-  const [findings, setFindings]     = useState<RepoFinding[] | null>(null);
 
   // filters
   const [sevFilter, setSevFilter]   = useState<string>(""); // "" = all
   const [repoFilter, setRepoFilter] = useState<string>(""); // "" = all
   const [groupBy, setGroupBy]       = useState<"severity" | "file" | "category">("severity");
 
+  // ── Hydrate sessions from localStorage on mount ──────────────────────────
+  useEffect(() => {
+    const loaded = loadSessions();
+    if (loaded.length === 0) {
+      const d = newDraft();
+      setSessions([d]);
+      setActiveId(d.id);
+    } else {
+      const savedActive = localStorage.getItem(ACTIVE_KEY) ?? "";
+      setSessions(loaded);
+      setActiveId(loaded.some(s => s.id === savedActive) ? savedActive : loaded[0].id);
+    }
+    setHydrated(true);
+  }, []);
+
+  // ── Persist on change ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!hydrated) return;
+    persistSessions(sessions);
+    localStorage.setItem(ACTIVE_KEY, activeId);
+  }, [sessions, activeId, hydrated]);
+
+  const active      = sessions.find(s => s.id === activeId) ?? null;
+  const addedRepos  = active?.repos ?? [];
+  const findings    = active?.findings ?? null;
+
+  const updateActive = useCallback(
+    (patch: (s: ScanSession) => Partial<ScanSession>) => {
+      setSessions(prev => prev.map(s => (s.id === activeId ? { ...s, ...patch(s) } : s)));
+    },
+    [activeId],
+  );
+
+  function selectTab(id: string) {
+    setActiveId(id);
+    setSevFilter("");
+    setRepoFilter("");
+    setScanError(null);
+  }
+
+  function openNewTab() {
+    const d = newDraft();
+    setSessions(prev => [...prev, d]);
+    setActiveId(d.id);
+    setSevFilter(""); setRepoFilter(""); setScanError(null);
+  }
+
+  function closeTab(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    const idx  = sessions.findIndex(s => s.id === id);
+    const next = sessions.filter(s => s.id !== id);
+    if (next.length === 0) {
+      const d = newDraft();
+      setSessions([d]); setActiveId(d.id);
+      return;
+    }
+    setSessions(next);
+    if (id === activeId) {
+      setActiveId(next[Math.min(idx, next.length - 1)].id);
+      setSevFilter(""); setRepoFilter("");
+    }
+  }
+
   async function addRepo() {
     const path = pathInput.trim();
-    if (!path) return;
+    if (!path || !active) return;
     if (addedRepos.find(r => r.path === path)) { setAddError("Already added."); return; }
     setAddLoading(true); setAddError(null);
     try {
       const repos = await listLocalRepos(path);
       const match = repos.find(r => r.path === path) ?? repos[0];
       if (!match) { setAddError("No git repo found at this path."); return; }
-      setAddedRepos(prev => [...prev, match]);
+      updateActive(s => ({ repos: [...s.repos, match] }));
       setPathInput("");
     } catch { setAddError("Could not read path."); }
     finally { setAddLoading(false); }
@@ -160,11 +305,11 @@ export default function GitHubPage() {
   }
 
   async function handleScan() {
-    if (addedRepos.length === 0) return;
-    setScanning(true); setScanError(null); setFindings(null);
+    if (!active || addedRepos.length === 0) return;
+    setScanning(true); setScanError(null);
     try {
       const result = await scanGitHubRepos(addedRepos.map(r => r.path));
-      setFindings(result.findings ?? []);
+      updateActive(() => ({ findings: result.findings ?? [], ts: Date.now() }));
     } catch (e) { setScanError(String(e)); }
     finally { setScanning(false); }
   }
@@ -182,7 +327,11 @@ export default function GitHubPage() {
     return acc;
   }, {});
 
-  const repos = [...new Set((findings ?? []).map(f => f.repo))];
+  // Map repo name → local absolute path (for PR creation)
+  const repoPaths = addedRepos.reduce<Record<string, string>>((acc, r) => {
+    acc[r.name] = r.path;
+    return acc;
+  }, {});
 
   // Group displayed findings
   function groupKey(f: RepoFinding) {
@@ -204,6 +353,50 @@ export default function GitHubPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {/* ── Tab bar (VSCode-style) ── */}
+      <div className="shrink-0 flex items-stretch bg-[#010409] border-b border-[#21262d] overflow-x-auto">
+        {sessions.map(s => {
+          const isActive = s.id === activeId;
+          const count    = s.findings?.length ?? null;
+          const crit     = (s.findings ?? []).filter(f => f.severity === "critical").length;
+          return (
+            <div
+              key={s.id}
+              onClick={() => selectTab(s.id)}
+              role="button"
+              className={`group relative flex items-center gap-2 pl-3 pr-2 h-9 shrink-0 cursor-pointer border-r border-[#21262d] whitespace-nowrap transition-colors ${
+                isActive ? "bg-[#0d1117] text-[#f0f6fc]" : "bg-[#010409] text-[#8b949e] hover:bg-[#0d1117]/60"
+              }`}
+            >
+              {isActive && <span className="absolute top-0 left-0 right-0 h-[2px] bg-[#388bfd]" />}
+              <GitBranch size={11} className={isActive ? "text-[#388bfd]" : "text-[#484f58]"} />
+              <span className="text-[12px] max-w-[150px] truncate">{tabLabel(s)}</span>
+              {s.findings === null ? (
+                <span className="text-[9px] text-[#484f58] italic">draft</span>
+              ) : count !== null && (
+                <span className={`text-[10px] font-mono ${crit > 0 ? "text-[#f85149]" : "text-[#484f58]"}`}>
+                  {count}
+                </span>
+              )}
+              <button
+                onClick={e => closeTab(s.id, e)}
+                className="ml-0.5 w-4 h-4 flex items-center justify-center rounded text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#30363d] opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Close tab"
+              >
+                <X size={10} />
+              </button>
+            </div>
+          );
+        })}
+        <button
+          onClick={openNewTab}
+          title="New scan"
+          className="flex items-center justify-center w-9 h-9 shrink-0 text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#0d1117] transition-colors"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
+
       {/* ── Top bar ── */}
       <div className="shrink-0 flex items-center gap-3 flex-wrap px-5 py-3 border-b border-[#21262d] bg-[#0d1117]">
         <Layers size={14} className="text-[#8b949e]" />
@@ -219,7 +412,7 @@ export default function GitHubPage() {
           className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 bg-[#388bfd] hover:bg-[#58a6ff] disabled:opacity-50 text-white rounded-md transition-colors font-semibold"
         >
           <Zap size={12} />
-          {scanning ? "Scanning…" : "Scan with Bob"}
+          {scanning ? "Scanning…" : findings !== null ? "Rescan" : "Scan with Bob"}
         </button>
       </div>
 
@@ -267,7 +460,7 @@ export default function GitHubPage() {
                       <span className="text-[10px] font-mono text-[#e3b341]">{highCount}</span>
                     )}
                     <button
-                      onClick={e => { e.stopPropagation(); setAddedRepos(p => p.filter(r => r.path !== repo.path)); }}
+                      onClick={e => { e.stopPropagation(); updateActive(s => ({ repos: s.repos.filter(r => r.path !== repo.path) })); }}
                       className="text-[#484f58] hover:text-[#f85149] transition-colors ml-1"
                     >
                       <X size={11} />
@@ -336,7 +529,7 @@ export default function GitHubPage() {
                       <FolderOpen size={10} className="text-[#484f58] shrink-0" />
                       <span className="text-[10px] text-[#8b949e] flex-1 truncate">{repo.name}</span>
                       <button
-                        onClick={() => { if (!already) setAddedRepos(p => [...p, repo]); }}
+                        onClick={() => { if (!already) updateActive(s => ({ repos: [...s.repos, repo] })); }}
                         disabled={already}
                         className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${already ? "border-[#30363d] text-[#484f58]" : "border-[#238636]/50 text-[#3fb950] hover:bg-[#238636]/10"}`}
                       >
@@ -433,7 +626,7 @@ export default function GitHubPage() {
             )}
 
             {!scanning && findings !== null && groupOrder.map(group => (
-              <GroupSection key={group} group={group} findings={groups[group]} groupBy={groupBy} />
+              <GroupSection key={group} group={group} findings={groups[group]} groupBy={groupBy} repoPaths={repoPaths} />
             ))}
           </div>
         </div>
@@ -443,18 +636,18 @@ export default function GitHubPage() {
 }
 
 function GroupSection({
-  group, findings, groupBy,
+  group, findings, groupBy, repoPaths,
 }: {
   group: string;
   findings: RepoFinding[];
   groupBy: "severity" | "file" | "category";
+  repoPaths: Record<string, string>; // repo name → absolute path
 }) {
   const [open, setOpen] = useState(true);
   const s = SEV[group];
 
   return (
     <div className="border-b border-[#21262d] last:border-0">
-      {/* Group header */}
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-2 px-4 py-2 bg-[#0d1117] hover:bg-[#0f1319] transition-colors text-left border-b border-[#21262d]"
@@ -475,8 +668,9 @@ function GroupSection({
         <span className="ml-1 text-[10px] text-[#484f58] font-mono">{findings.length}</span>
       </button>
 
-      {/* Rows */}
-      {open && findings.map((f, i) => <FindingRow key={i} f={f} />)}
+      {open && findings.map((f, i) => (
+        <FindingRow key={i} f={f} repoPath={repoPaths[f.repo] ?? ""} />
+      ))}
     </div>
   );
 }

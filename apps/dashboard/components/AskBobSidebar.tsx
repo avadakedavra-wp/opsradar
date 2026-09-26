@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { askBob } from "@/lib/api";
-import { X, Send, MessageCircle, History, Trash2, Plus } from "lucide-react";
+import { X, Send, MessageCircle, History, Trash2, Plus, Activity, Box } from "lucide-react";
 
 interface Message {
   role: "user" | "bob";
@@ -16,9 +16,16 @@ interface Session {
   messages: Message[];
 }
 
+interface PodFocus {
+  namespace: string;
+  pod: string;
+  k8sContext?: string;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
+  podFocus?: PodFocus | null; // when set, Bob reads that pod's logs + events
 }
 
 const STARTERS = [
@@ -99,7 +106,7 @@ function renderInline(text: string): React.ReactNode {
   );
 }
 
-export default function AskBobSidebar({ open, onClose }: Props) {
+export default function AskBobSidebar({ open, onClose, podFocus }: Props) {
   const [sessions, setSessions]   = useState<Session[]>([]);
   const [activeId, setActiveId]   = useState<string | null>(null);
   const [messages, setMessages]   = useState<Message[]>([]);
@@ -145,7 +152,10 @@ export default function AskBobSidebar({ open, onClose }: Props) {
     setLoading(true);
 
     try {
-      const reply = await askBob(userMsg.text, { contextType: "cluster" });
+      const bobOpts = podFocus
+        ? { contextType: "pod", contextId: `${podFocus.namespace}/${podFocus.pod}`, k8sContext: podFocus.k8sContext ?? "" }
+        : { contextType: "cluster" };
+      const reply = await askBob(userMsg.text, bobOpts);
       const bobMsg: Message = { role: "bob", text: reply };
       const finalMsgs = [...nextMsgs, bobMsg];
       setMessages(finalMsgs);
@@ -189,7 +199,12 @@ export default function AskBobSidebar({ open, onClose }: Props) {
             </div>
             <div className="leading-none">
               <div className="text-[13px] font-semibold text-[#f0f6fc]">Ask Bob</div>
-              <div className="text-[10px] text-[#484f58] mt-0.5 font-mono">IBM Bob Shell AI · claude context</div>
+              <div className="text-[10px] text-[#484f58] mt-0.5 font-mono flex items-center gap-1">
+                {podFocus
+                  ? <><Box size={9} className="text-[#388bfd]" />{podFocus.namespace}/{podFocus.pod}</>
+                  : <><Activity size={9} className="text-[#3fb950]" />live cluster telemetry</>
+                }
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -247,6 +262,14 @@ export default function AskBobSidebar({ open, onClose }: Props) {
           </div>
         ) : (
           <>
+            {/* Pod focus banner */}
+            {podFocus && (
+              <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-[#388bfd]/6 border-b border-[#388bfd]/15 text-[11px] text-[#8b949e]">
+                <Box size={11} className="text-[#388bfd] shrink-0" />
+                <span>Bob will read <span className="font-mono text-[#388bfd]">{podFocus.namespace}/{podFocus.pod}</span> logs &amp; events for every message</span>
+              </div>
+            )}
+
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0">
               {messages.length === 0 && (
@@ -291,9 +314,19 @@ export default function AskBobSidebar({ open, onClose }: Props) {
                   <div className="w-6 h-6 rounded-md bg-[#388bfd]/10 border border-[#388bfd]/25 flex items-center justify-center shrink-0 mt-0.5">
                     <MessageCircle size={11} className="text-[#388bfd]" />
                   </div>
-                  <div className="bg-[#21262d] border border-[#30363d] rounded-lg px-3 py-2.5 text-xs text-[#8b949e] flex items-center gap-1.5">
-                    <span className="animate-pulse">Thinking</span>
-                    <span className="font-mono">…</span>
+                  <div className="bg-[#21262d] border border-[#30363d] rounded-lg px-3 py-2.5 text-xs text-[#8b949e] space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="animate-pulse">
+                        {podFocus ? `Reading ${podFocus.pod} logs` : "Fetching telemetry"}
+                      </span>
+                      <span className="font-mono">…</span>
+                    </div>
+                    <div className="text-[10px] text-[#484f58]">
+                      {podFocus
+                        ? "events + logs → Bob"
+                        : "pod status + events + logs → Bob"
+                      }
+                    </div>
                   </div>
                 </div>
               )}
