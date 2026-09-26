@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,11 +15,47 @@ import (
 )
 
 const (
-	ghAuthURL        = "https://github.com/login/oauth/authorize"
-	ghTokenURL       = "https://github.com/login/oauth/access_token"
-	oauthCallbackURL = "http://localhost:8080/github/oauth/callback"
-	dashboardBaseURL = "http://localhost:3000/settings"
+	ghAuthURL  = "https://github.com/login/oauth/authorize"
+	ghTokenURL = "https://github.com/login/oauth/access_token"
 )
+
+// callbackURL is the redirect_uri GitHub returns to. It MUST exactly match the
+// "Authorization callback URL" registered in the GitHub OAuth App. Priority:
+// OAUTH_CALLBACK_URL env → derived from the incoming request host → default. The
+// derived form means the callback tracks whatever host:port the API is reached on.
+func callbackURL(c *fiber.Ctx) string {
+	if v := os.Getenv("OAUTH_CALLBACK_URL"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	host := c.Hostname() // includes port, e.g. "localhost:8080"
+	if host == "" {
+		host = "localhost:" + getEnvDefault("PORT", "8080")
+	}
+	return fmt.Sprintf("%s://%s/github/oauth/callback", c.Protocol(), host)
+}
+
+// dashboardSettingsURL returns where to send the user after OAuth. We prefer the
+// dashboard origin the user actually started from (carried through the OAuth
+// `state` param, so it works on any port), then OPSRADAR_DASHBOARD_URL, then the
+// :3000 default. This is why changing only the dashboard port needs no GitHub change.
+func dashboardSettingsURL(state string) string {
+	if state != "" {
+		if b, err := base64.RawURLEncoding.DecodeString(state); err == nil && len(b) > 0 {
+			return strings.TrimRight(string(b), "/") + "/settings"
+		}
+	}
+	if v := os.Getenv("OPSRADAR_DASHBOARD_URL"); v != "" {
+		return strings.TrimRight(v, "/") + "/settings"
+	}
+	return "http://localhost:3000/settings"
+}
+
+func getEnvDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 // GitHubOAuthStart handles GET /github/oauth/start
 // Returns the GitHub OAuth URL for the frontend to redirect to.
@@ -30,10 +67,21 @@ func GitHubOAuthStart(c *fiber.Ctx) error {
 		})
 	}
 
+	// Remember where the user came from so we can return them there after OAuth,
+	// regardless of the dashboard's port. Prefer an explicit ?return=, then Origin.
+	ret := c.Query("return")
+	if ret == "" {
+		ret = c.Get("Origin")
+	}
+	ret = strings.TrimRight(ret, "/")
+
 	params := url.Values{}
 	params.Set("client_id", clientID)
 	params.Set("scope", "repo")
-	params.Set("redirect_uri", oauthCallbackURL)
+	params.Set("redirect_uri", callbackURL(c))
+	if ret != "" {
+		params.Set("state", base64.RawURLEncoding.EncodeToString([]byte(ret)))
+	}
 
 	return c.JSON(fiber.Map{
 		"url": fmt.Sprintf("%s?%s", ghAuthURL, params.Encode()),
@@ -43,20 +91,22 @@ func GitHubOAuthStart(c *fiber.Ctx) error {
 // GitHubOAuthCallback handles GET /github/oauth/callback
 // GitHub redirects here after the user approves/denies the OAuth app.
 func GitHubOAuthCallback(c *fiber.Ctx) error {
+	settingsURL := dashboardSettingsURL(c.Query("state"))
+
 	if errParam := c.Query("error"); errParam != "" {
 		desc := c.Query("error_description")
-		return c.Redirect(dashboardBaseURL + "?github=error&msg=" + url.QueryEscape(desc))
+		return c.Redirect(settingsURL + "?github=error&msg=" + url.QueryEscape(desc))
 	}
 
 	code := c.Query("code")
 	if code == "" {
-		return c.Redirect(dashboardBaseURL + "?github=error&msg=no+code+returned")
+		return c.Redirect(settingsURL + "?github=error&msg=no+code+returned")
 	}
 
 	clientID := envOrFile("GITHUB_CLIENT_ID")
 	clientSecret := envOrFile("GITHUB_CLIENT_SECRET")
 	if clientID == "" || clientSecret == "" {
-		return c.Redirect(dashboardBaseURL + "?github=error&msg=missing+client+credentials")
+		return c.Redirect(settingsURL + "?github=error&msg=missing+client+credentials")
 	}
 
 	ctx, cancel := context.WithTimeout(c.Context(), 20*time.Second)
@@ -64,13 +114,13 @@ func GitHubOAuthCallback(c *fiber.Ctx) error {
 
 	token, err := exchangeCode(ctx, clientID, clientSecret, code)
 	if err != nil {
-		return c.Redirect(dashboardBaseURL + "?github=error&msg=" + url.QueryEscape(err.Error()))
+		return c.Redirect(settingsURL + "?github=error&msg=" + url.QueryEscape(err.Error()))
 	}
 
 	login, _ := getLoginFromToken(ctx, token)
 
 	if writeErr := writeEnvFile(map[string]string{"GITHUB_TOKEN": token}); writeErr != nil {
-		return c.Redirect(dashboardBaseURL + "?github=error&msg=save+failed")
+		return c.Redirect(settingsURL + "?github=error&msg=save+failed")
 	}
 	os.Setenv("GITHUB_TOKEN", token)
 
@@ -78,7 +128,7 @@ func GitHubOAuthCallback(c *fiber.Ctx) error {
 	if login != "" {
 		loginParam = "&login=" + url.QueryEscape(login)
 	}
-	return c.Redirect(dashboardBaseURL + "?github=connected" + loginParam)
+	return c.Redirect(settingsURL + "?github=connected" + loginParam)
 }
 
 // GitHubOAuthStatus handles GET /github/oauth/status

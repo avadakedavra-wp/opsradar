@@ -25,6 +25,21 @@ func NewClaudeCLIBackend(bin string) *ClaudeCLIBackend {
 	return &ClaudeCLIBackend{bin: bin, timeout: taskTimeoutFromEnv()}
 }
 
+// newCLICmd builds a `claude` print-mode command with tools disabled and the
+// prompt fed via stdin. Two decisions matter here:
+//   - --allowedTools "" disables ALL tools. Our prompts inline every bit of
+//     context the model needs; without this the agentic CLI wanders off trying
+//     to Read/Grep the filesystem (measured 69–180s+ and often timing out).
+//     Disabling tools made the same call deterministic (~22s).
+//   - the prompt goes on stdin, not argv: --allowedTools is variadic and would
+//     otherwise swallow the prompt, and stdin sidesteps OS arg-length limits on
+//     large multi-repo scan prompts.
+func newCLICmd(ctx context.Context, bin, prompt string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, bin, "-p", "--allowedTools", "")
+	cmd.Stdin = strings.NewReader(prompt)
+	return cmd
+}
+
 // Ready reports whether the claude binary is on PATH.
 func (c *ClaudeCLIBackend) Ready() error {
 	if _, err := exec.LookPath(c.bin); err != nil {
@@ -40,7 +55,7 @@ func (c *ClaudeCLIBackend) Run(ctx context.Context, task Task) Result {
 	defer cancel()
 
 	prompt := buildPrompt(task)
-	cmd := exec.CommandContext(taskCtx, c.bin, "-p", prompt)
+	cmd := newCLICmd(taskCtx, c.bin, prompt)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -72,7 +87,7 @@ func (c *ClaudeCLIBackend) Chat(ctx context.Context, message, clusterContext str
 			"\n\nAnswer clearly and concisely. Focus on actionable advice for the platform engineer."
 	}
 
-	cmd := exec.CommandContext(chatCtx, c.bin, "-p", prompt)
+	cmd := newCLICmd(chatCtx, c.bin, prompt)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

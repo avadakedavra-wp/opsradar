@@ -4,12 +4,12 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getRadar, listScans, startScan, scanStatusMeta,
-  listPods, askBob,
+  listPods, listContexts, listNamespaces, askBob,
   Scan, RadarRow, PodInfo,
 } from "@/lib/api";
 import RadarHeatmap from "@/components/RadarHeatmap";
 import Link from "next/link";
-import { Zap, ArrowRight, AlertCircle, Send, MessageCircle, Server, ShieldAlert, CheckCircle } from "lucide-react";
+import { Zap, ArrowRight, AlertCircle, Send, MessageCircle, Server, ShieldAlert, CheckCircle, ChevronDown } from "lucide-react";
 
 interface ChatMsg { role: "user" | "bob"; text: string }
 
@@ -32,17 +32,36 @@ export default function HomePage() {
   // Live pods
   const [pods, setPods] = useState<PodInfo[]>([]);
 
+  // Cluster context / namespace selection (mirrors the Cluster page)
+  const [contexts, setContexts]     = useState<string[]>([]);
+  const [context, setContext]       = useState("");
+  const [namespaces, setNamespaces] = useState<string[]>([]);
+  const [namespace, setNamespace]   = useState("");
+
   // Ask Bob chat
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
+  // Scans + radar load once (radar reflects the latest stored scan).
   useEffect(() => {
-    Promise.all([getRadar(), listScans(), listPods("")])
-      .then(([r, s, p]) => { setRadar(r); setScans(s); setPods(p); })
+    Promise.all([getRadar(), listScans()])
+      .then(([r, s]) => { setRadar(r); setScans(s); })
       .catch(() => {});
   }, []);
+
+  // Contexts once; namespaces follow the selected context.
+  useEffect(() => { listContexts().then(setContexts).catch(() => {}); }, []);
+  useEffect(() => {
+    setNamespace("");
+    listNamespaces(context).then(setNamespaces).catch(() => {});
+  }, [context]);
+
+  // Live pod stats reflect the chosen context + namespace.
+  useEffect(() => {
+    listPods(namespace, context).then(setPods).catch(() => {});
+  }, [namespace, context]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -52,7 +71,9 @@ export default function HomePage() {
     setScanning(true);
     setScanError(null);
     try {
-      const { scan_id } = await startScan();
+      // Scan the selected cluster context (empty = every loaded context).
+      const clusterName = context || "default-cluster";
+      const { scan_id } = await startScan(clusterName, namespace, context);
       router.push(`/scan/${scan_id}`);
     } catch (e: unknown) {
       setScanError(e instanceof Error ? e.message : String(e));
@@ -66,7 +87,7 @@ export default function HomePage() {
     setChatInput("");
     setChatLoading(true);
     try {
-      const reply = await askBob(text.trim(), { contextType: "cluster" });
+      const reply = await askBob(text.trim(), { contextType: "cluster", k8sContext: context });
       setMessages(prev => [...prev, { role: "bob", text: reply }]);
     } catch (e: unknown) {
       setMessages(prev => [...prev, {
@@ -92,19 +113,53 @@ export default function HomePage() {
     <main className="overflow-y-auto h-full px-6 py-6 space-y-6 max-w-[1400px]">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-lg font-semibold text-[#f0f6fc] tracking-tight">Dashboard</h1>
-          <p className="text-xs text-[#8b949e] mt-0.5">Cluster health · Powered by Bob</p>
+          <p className="text-xs text-[#8b949e] mt-0.5">
+            {context ? <>Context <span className="text-[#388bfd] font-mono">{context}</span></> : "All contexts"}
+            {namespace && <> · <span className="text-[#388bfd] font-mono">{namespace}</span></>}
+            <span className="text-[#484f58]"> · Powered by Bob</span>
+          </p>
         </div>
-        <button
-          onClick={handleScanNow}
-          disabled={scanning}
-          className="flex items-center gap-2 px-3 py-1.5 bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold rounded-md transition-colors disabled:opacity-50"
-        >
-          <Zap size={12} />
-          {scanning ? "Starting…" : "Scan Now"}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Context selector */}
+          {contexts.length > 0 && (
+            <div className="relative">
+              <select
+                value={context}
+                onChange={e => setContext(e.target.value)}
+                className="appearance-none text-[11px] bg-[#161b22] border border-[#388bfd]/40 rounded-md pl-3 pr-7 py-1.5 text-[#f0f6fc] focus:outline-none focus:border-[#388bfd] cursor-pointer"
+                title="Kubernetes context"
+              >
+                <option value="">All contexts</option>
+                {contexts.map(ctx => <option key={ctx} value={ctx}>{ctx}</option>)}
+              </select>
+              <ChevronDown size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#8b949e]" />
+            </div>
+          )}
+          {/* Namespace selector */}
+          <div className="relative">
+            <select
+              value={namespace}
+              onChange={e => setNamespace(e.target.value)}
+              className="appearance-none text-[11px] bg-[#161b22] border border-[#30363d] rounded-md pl-3 pr-7 py-1.5 text-[#f0f6fc] focus:outline-none focus:border-[#388bfd] cursor-pointer"
+              title="Namespace"
+            >
+              <option value="">All namespaces</option>
+              {namespaces.map(ns => <option key={ns} value={ns}>{ns}</option>)}
+            </select>
+            <ChevronDown size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#8b949e]" />
+          </div>
+          <button
+            onClick={handleScanNow}
+            disabled={scanning}
+            className="flex items-center gap-2 px-3 py-1.5 bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold rounded-md transition-colors disabled:opacity-50"
+          >
+            <Zap size={12} />
+            {scanning ? "Starting…" : "Scan Now"}
+          </button>
+        </div>
       </div>
 
       {scanError && (

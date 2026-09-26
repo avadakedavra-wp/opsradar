@@ -27,7 +27,14 @@ if [ ! -d "$DASHBOARD_DIR" ]; then
   DASHBOARD_DIR="${HOME}/.opsradar/dashboard"
 fi
 
-API_BIN="${SCRIPT_DIR}/opsradar-api"
+# opsradar-api sits next to this script (Homebrew) or under ~/.opsradar (the curl
+# installer puts the CLI in ~/.local/bin but the API binary in ~/.opsradar). Search both.
+API_BIN="${OPSRADAR_API_BIN:-}"
+if [ -z "$API_BIN" ] || [ ! -x "$API_BIN" ]; then
+  for _cand in "${SCRIPT_DIR}/opsradar-api" "${HOME}/.opsradar/opsradar-api"; do
+    if [ -x "$_cand" ]; then API_BIN="$_cand"; break; fi
+  done
+fi
 LOG_DIR="${HOME}/.opsradar/logs"
 PID_DIR="${HOME}/.opsradar/run"
 ENV_FILE="${HOME}/.opsradar/.env"

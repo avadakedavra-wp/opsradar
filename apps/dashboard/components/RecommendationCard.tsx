@@ -11,20 +11,38 @@ const SEV_STYLE: Record<string, { text: string; label: string }> = {
   low:      { text: "#388bfd", label: "low"      },
 };
 
+// isJsonPatch reports whether a diff_patch is a structured JSON merge patch
+// (the format Apply Fix applies) rather than a textual unified diff.
+function isJsonPatch(s: string): boolean {
+  const t = s.trim();
+  return t.startsWith("{");
+}
+
+// prettyPatch pretty-prints a JSON merge patch; leaves other text untouched.
+function prettyPatch(s: string): string {
+  try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; }
+}
+
 function kubectlCommand(f: Finding): string {
+  // When we have a real strategic merge patch, show the exact command Apply runs.
+  if (f.diff_patch && isJsonPatch(f.diff_patch)) {
+    try {
+      const oneLine = JSON.stringify(JSON.parse(f.diff_patch));
+      return `kubectl patch deployment <name> -n <namespace> -p '${oneLine}'`;
+    } catch { /* fall through to heuristics */ }
+  }
+
   const k = (f.kind ?? "").toLowerCase();
   const title = (f.title ?? "").toLowerCase();
 
   if (k.includes("restart") || title.includes("restart"))
-    return `kubectl rollout restart deployment -n <namespace>`;
+    return `kubectl rollout restart deployment <name> -n <namespace>`;
   if (k.includes("scale") || title.includes("replica"))
     return `kubectl scale deployment <name> --replicas=2 -n <namespace>`;
   if (k.includes("resource") || title.includes("resource limit") || title.includes("cpu") || title.includes("memory"))
-    return `kubectl patch deployment <name> -n <namespace> --type=json \\\n  -p='[{"op":"add","path":"/spec/template/spec/containers/0/resources","value":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"500m","memory":"256Mi"}}}]'`;
+    return `kubectl patch deployment <name> -n <namespace> \\\n  -p '{"spec":{"template":{"spec":{"containers":[{"name":"<container>","resources":{"requests":{"cpu":"10m","memory":"128Mi"},"limits":{"memory":"256Mi"}}}]}}}}'`;
   if (k.includes("probe") || title.includes("probe") || title.includes("liveness") || title.includes("readiness"))
-    return `kubectl patch deployment <name> -n <namespace> --type=json \\\n  -p='[{"op":"add","path":"/spec/template/spec/containers/0/livenessProbe","value":{"httpGet":{"path":"/healthz","port":8080},"initialDelaySeconds":10,"periodSeconds":10}}]'`;
-  if (f.diff_patch)
-    return `kubectl apply -f - <<'EOF'\n${f.diff_patch.slice(0, 200)}...\nEOF`;
+    return `kubectl patch deployment <name> -n <namespace> \\\n  -p '{"spec":{"template":{"spec":{"containers":[{"name":"<container>","readinessProbe":{"httpGet":{"path":"/healthz","port":8080},"initialDelaySeconds":5,"periodSeconds":10}}]}}}}'`;
   return `kubectl apply -f fix.yaml -n <namespace>`;
 }
 
@@ -47,6 +65,8 @@ export default function RecommendationCard({ finding: f, onResolved }: Props) {
 
   const sev = SEV_STYLE[f.severity] ?? { text: "#8b949e", label: f.severity };
   const cmd = kubectlCommand(f);
+  const diffIsJson = f.diff_patch ? isJsonPatch(f.diff_patch) : false;
+  const diffBody   = f.diff_patch ? (diffIsJson ? prettyPatch(f.diff_patch) : f.diff_patch) : "";
 
   async function handleApplyFix() {
     setApplyLoading(true);
@@ -125,9 +145,12 @@ export default function RecommendationCard({ finding: f, onResolved }: Props) {
 
       {/* kubectl command */}
       <div className={`rounded-md border overflow-hidden ${clusterDown ? "border-[#e3b341]/40" : "border-[#21262d]"}`}>
-        <button
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => setCmdOpen(o => !o)}
-          className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors ${clusterDown ? "bg-[#e3b341]/8 hover:bg-[#e3b341]/12" : "bg-[#0d1117] hover:bg-[#0f1319]"}`}
+          onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setCmdOpen(o => !o); } }}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-left cursor-pointer transition-colors ${clusterDown ? "bg-[#e3b341]/8 hover:bg-[#e3b341]/12" : "bg-[#0d1117] hover:bg-[#0f1319]"}`}
         >
           {clusterDown
             ? <WifiOff size={11} className="text-[#e3b341] shrink-0" />
@@ -147,7 +170,7 @@ export default function RecommendationCard({ finding: f, onResolved }: Props) {
             ? <ChevronDown size={11} className="text-[#484f58] shrink-0" />
             : <ChevronRight size={11} className="text-[#484f58] shrink-0" />
           }
-        </button>
+        </div>
         {(cmdOpen || clusterDown) && (
           <pre className={`px-3 py-2.5 text-[11px] font-mono border-t overflow-x-auto whitespace-pre leading-relaxed ${clusterDown ? "text-[#e3b341] bg-[#e3b341]/5 border-[#e3b341]/20" : "text-[#3fb950] bg-[#0d1117] border-[#21262d]"}`}>
             {cmd}
@@ -157,19 +180,24 @@ export default function RecommendationCard({ finding: f, onResolved }: Props) {
 
       {f.diff_patch && (
         <div className="rounded-md border border-[#21262d] overflow-hidden">
-          <button
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => setDiffOpen(o => !o)}
-            className="w-full flex items-center gap-2 px-3 py-2 bg-[#161b22] text-left hover:bg-[#1c2128] transition-colors"
+            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDiffOpen(o => !o); } }}
+            className="w-full flex items-center gap-2 px-3 py-2 bg-[#161b22] text-left cursor-pointer hover:bg-[#1c2128] transition-colors"
           >
-            <span className="text-[10px] text-[#8b949e] flex-1">Show diff</span>
+            <span className="text-[10px] text-[#8b949e] flex-1">
+              {diffIsJson ? "Show patch" : "Show diff"}
+            </span>
             {diffOpen
               ? <ChevronDown size={11} className="text-[#484f58] shrink-0" />
               : <ChevronRight size={11} className="text-[#484f58] shrink-0" />
             }
-          </button>
+          </div>
           {diffOpen && (
             <pre className="text-xs bg-[#0d1117] text-[#3fb950] border-t border-[#21262d] p-3 overflow-x-auto whitespace-pre font-mono">
-              {f.diff_patch}
+              {diffBody}
             </pre>
           )}
         </div>

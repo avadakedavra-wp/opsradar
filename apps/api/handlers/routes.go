@@ -35,6 +35,7 @@ func RegisterRoutes(r fiber.Router, db store.Store, k8sMgr *k8s.Manager, backend
 	r.Get("/k8s/namespaces", kh.ListNamespaces)
 	r.Get("/k8s/pods", kh.ListPods)
 	r.Get("/k8s/pods/:namespace/:pod/logs", kh.GetPodLogs)
+	r.Get("/k8s/yaml", kh.GetResourceYAML)
 	r.Post("/k8s/deployments/restart", kh.RestartDeployment)
 	r.Post("/k8s/deployments/scale", kh.ScaleDeployment)
 	r.Delete("/k8s/pods/:namespace/:pod", kh.DeletePod)

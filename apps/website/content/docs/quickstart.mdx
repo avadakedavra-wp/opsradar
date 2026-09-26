@@ -1,62 +1,87 @@
 ---
-title: Quickstart
-description: Run OpsRadar locally in under 60 seconds.
+title: Install & Run
+description: Install OpsRadar and run your first scan.
 ---
 
-# Quickstart
+# Install & Run
+
+There are three ways to run OpsRadar. Most people want **Option A** (the one-line installer). Use Docker or the dev workflow if you're contributing or prefer containers.
 
 ## Prerequisites
 
-- **Go 1.23+** — for the API server
-- **Node.js 22+** — for the dashboard and website
-- **`~/.kube/config`** — at least one valid kubeconfig context
-- **[IBM Bob Shell](https://bob.ibm.com)** — installed and available in `$PATH` as `bob`
-- **GitHub personal access token** *(optional)* — required only for PR generation
+- **`~/.kube/config`** — at least one reachable kubeconfig context. A context that can't connect is skipped, not fatal.
+- **An AI backend** — one of: an `ANTHROPIC_API_KEY`, the `claude` CLI, or the `bob` CLI. See [the AI backend](/docs/configuration#ai-backend). You can add this after install from the Settings page.
+- **Node.js 18+** — bundled dashboard runs on Node (installer checks for it).
+- **metrics-server** on the cluster — needed for live CPU/memory usage (`kubectl top pods` should work).
+- **GitHub token** *(optional)* — only for PR generation and repo scanning; connect it later from Settings.
 
-## Option A — Docker Compose
+## Option A — One-line install (recommended)
 
-The fastest path. Mounts your local kubeconfig read-only.
+Installs the `opsradar` CLI, the API binary, and the bundled dashboard into `~/.opsradar` and `~/.local/bin`:
 
 ```bash
-git clone https://github.com/your-org/opsradar
-cd opsradar
-cp .env.example .env
+curl -fsSL https://raw.githubusercontent.com/avadakedavra-wp/opsradar/main/scripts/install.sh | bash
 ```
 
-Edit `.env` and fill in:
+Pin a version with `| bash -s -- --version v1.2.0`. Then start it:
 
 ```bash
+opsradar start
+```
+
+This launches the API on `:8080` and the dashboard on **`:6689`**, then opens your browser. Other commands:
+
+```bash
+opsradar status   # is it running?
+opsradar logs     # tail API + dashboard logs
+opsradar stop     # stop everything
+```
+
+If `opsradar` isn't found after install, add `~/.local/bin` to your `PATH` (the installer appends this to your shell rc — open a new terminal or `source` it).
+
+## Option B — Docker Compose
+
+Runs the API and dashboard in containers and mounts your kubeconfig read-only. From a clone of the repo:
+
+```bash
+git clone https://github.com/avadakedavra-wp/opsradar.git
+cd opsradar
+docker compose -f deploy/docker-compose.yml up
+```
+
+Configuration comes from a `.env` file next to the compose file. Create one with whatever you need:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
 GITHUB_TOKEN=ghp_...
 GITHUB_REPO=myorg/myrepo
+OPS_RADAR_API_KEY=change-me
 ```
 
-Then start:
+Open **http://localhost:3000** — the dashboard loads immediately. (Docker uses port `3000`; the CLI in Option A uses `6689`.)
 
-```bash
-docker compose up
-```
+## Option C — Local dev
 
-Open **http://localhost:3000** — the dashboard loads immediately.
-
-## Option B — Local dev mode
-
-Runs the Go API and Next.js dashboard without Docker.
+Runs the Go API and Next.js dashboard from source, no containers:
 
 ```bash
 make dev
 ```
 
-This starts:
-- Go API on `http://localhost:8080`
-- Next.js dashboard on `http://localhost:3000`
+- API on `http://localhost:8080`
+- Dashboard on `http://localhost:3000`
 
 ## First scan
 
-1. Open **http://localhost:3000**
-2. Click **⚡ Scan Now**
-3. OpsRadar reads all your kubeconfig contexts and fans out goroutines across every namespace
-4. Watch findings stream in real time in the scan view
-5. Click **Generate PR** on any finding with a diff patch
+1. Open the dashboard (`:6689` for the CLI, `:3000` for Docker/dev).
+2. Click **Scan Now**.
+3. OpsRadar reads every kubeconfig context and fans out goroutines across every namespace.
+4. Findings stream in live in the scan view.
+5. Click **Generate PR** on any finding that has a diff patch, or **Apply** to patch the live cluster directly.
+
+## Configure
+
+Open **Settings** in the dashboard to add your AI backend key, connect GitHub, or set an API key — no restart needed. Settings are written to `~/.opsradar/.env` (mode `0600`, this machine only). See [Configuration](/docs/configuration) for every option.
 
 ## Verify the API
 
@@ -65,17 +90,6 @@ curl http://localhost:8080/health
 # {"status":"ok"}
 ```
 
-## Seed a demo cluster
+## Try it on a demo cluster
 
-If you want deliberate problems to find, apply the seed manifests:
-
-```bash
-kubectl create namespace ops-radar-demo --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -k seed/demo-cluster/
-```
-
-This creates two Deployments with known issues:
-- `over-provisioned-app` — 4000m CPU request, `nginx:latest`, no probes
-- `missing-limits-app` — no resource requests, no limits, no probes
-
-Bob will find at least 4 distinct issues across these.
+No broken workloads to look at yet? Plant a couple deliberately — see [Demo Cluster](/docs/seed-cluster).

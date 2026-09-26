@@ -197,6 +197,21 @@ export async function getPodLogs(namespace: string, pod: string, opts?: { contai
   return data.logs ?? "";
 }
 
+export async function getResourceYAML(
+  kind: string, name: string, namespace = "", context = ""
+): Promise<string> {
+  const params = new URLSearchParams({ kind, name });
+  if (namespace) params.set("namespace", namespace);
+  if (context) params.set("context", context);
+  const res = await fetch(`${API_URL}/k8s/yaml?${params}`, { headers: headers() });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `GET /k8s/yaml ${res.status}`);
+  }
+  const data = await res.json();
+  return data.yaml ?? "";
+}
+
 export async function restartDeployment(namespace: string, deployment: string, context = ""): Promise<void> {
   const res = await fetch(`${API_URL}/k8s/deployments/restart`, {
     method: "POST",
@@ -472,6 +487,10 @@ export async function scanGitHubRepos(paths: string[]): Promise<{ findings: Repo
     headers: { ...headers(), "Content-Type": "application/json" },
     body: JSON.stringify({ paths }),
   });
-  if (!res.ok) throw new Error(`POST /github/scan ${res.status}`);
+  if (!res.ok) {
+    // Surface the backend's real message (e.g. an AI timeout) instead of a bare status.
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `POST /github/scan ${res.status}`);
+  }
   return res.json();
 }

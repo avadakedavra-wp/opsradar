@@ -93,6 +93,23 @@ func writeEnvFile(updates map[string]string) error {
 	return os.WriteFile(path, []byte(sb.String()), 0o600)
 }
 
+// LoadStoredEnv loads ~/.opsradar/.env into the process environment at startup so
+// credentials saved via the Settings UI / GitHub OAuth survive an API restart.
+// Without this, saved values only lived in the running process (via os.Setenv on
+// save) and were silently lost on every restart — e.g. GITHUB_TOKEN going missing
+// so "Create PR" fell back to "set GITHUB_TOKEN". The shell environment wins:
+// only keys not already set are populated, so explicit overrides still take effect.
+func LoadStoredEnv() int {
+	loaded := 0
+	for k, v := range readEnvFile() {
+		if v != "" && os.Getenv(k) == "" {
+			os.Setenv(k, v)
+			loaded++
+		}
+	}
+	return loaded
+}
+
 // maskValue returns "•••••••••<last4>" for sensitive strings, full value otherwise.
 func maskValue(v string) string {
 	if len(v) <= 4 {

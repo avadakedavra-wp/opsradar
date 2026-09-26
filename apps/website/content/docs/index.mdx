@@ -1,31 +1,47 @@
 ---
 title: Introduction
-description: OpsRadar — Kubernetes operations intelligence powered by IBM Bob Shell AI.
+description: OpsRadar — Kubernetes operations intelligence with AI-generated, commit-ready fixes.
 ---
 
 # OpsRadar
 
-OpsRadar is a **local-first** Kubernetes operations tool. It reads every context in your `~/.kube/config`, scans all connected clusters using IBM Bob Shell AI, and streams findings directly to your browser — with one-click GitHub PR generation for every fix.
+OpsRadar is a **local-first** Kubernetes operations tool. It reads every context in your `~/.kube/config`, scans your live clusters with an AI backend, and streams findings straight to your browser — then closes the loop with one-click GitHub PRs that carry a commit-ready YAML fix.
+
+The product's spine is a single chain: **scan → diagnose → fix**. OpsRadar doesn't hand you a report to action later; every finding leads to a patch.
 
 ## What it does
 
-1. **Discovers** every Deployment across every namespace in every kubeconfig context
-2. **Analyses** each manifest with Bob Shell — resource limits, probes, image pinning, security posture
-3. **Detects** the GitHub repository behind each workload (from annotations or image tags)
-4. **Generates** commit-ready unified diff patches and opens real GitHub PRs
+1. **Discovers** every workload — Deployments, DaemonSets, StatefulSets, ReplicaSets, Jobs, CronJobs — across every namespace in every kubeconfig context.
+2. **Analyses** each manifest with an AI backend: resource limits, probes, image pinning, high-availability posture, security.
+3. **Detects** the GitHub repository behind each workload from annotations or image tags (see [GitHub Detection](/docs/github-detection)).
+4. **Generates** unified-diff patches and opens real GitHub PRs against the source file.
+5. **Operates** the cluster directly from the browser — view YAML and logs, restart/scale/delete workloads, apply a fix, or open an interactive pod shell (see [Cluster Operations](/docs/cluster)).
 
 ## Who it's for
 
-Platform engineers and SREs who own Kubernetes cluster infrastructure. OpsRadar is designed for engineers who read YAML, run on-call shifts, and need findings that lead directly to a fix — not a report to action later.
+Platform engineers and SREs who own Kubernetes infrastructure — people who read YAML, run on-call shifts, and want findings that lead directly to a fix, not a dashboard to interpret.
+
+## The AI backend
+
+OpsRadar is not tied to one model. On startup it auto-detects a backend in this order (override with `AGENT_BACKEND`):
+
+| Order | Backend | Selected when |
+|---|---|---|
+| 1 | **Claude API** | `ANTHROPIC_API_KEY` is set (default model `claude-opus-5`) |
+| 2 | **Claude CLI** | the `claude` binary is on `PATH` (uses your existing login) |
+| 3 | **Bob Shell** | the `bob` binary is on `PATH` |
+
+If none is available, cluster scanning is disabled until you configure one — everything else still runs. See [Configuration](/docs/configuration#ai-backend).
 
 ## Key properties
 
 | Property | Value |
 |---|---|
 | Runs locally | Yes — no cloud, no SaaS |
-| Storage | SQLite (single file on disk) |
-| Auth | Optional API key |
-| AI engine | IBM Bob Shell |
+| Storage | SQLite (single file, defaults to `~/.opsradar/ops-radar.db`) |
+| Auth | Optional API key (`OPS_RADAR_API_KEY`) |
+| AI engine | Claude API · Claude CLI · Bob Shell (auto-detected) |
+| Cluster access | Read + operate; PRs never touch the cluster directly |
 | PR target | Any GitHub repository |
 
 ## Architecture
@@ -37,23 +53,28 @@ Platform engineers and SREs who own Kubernetes cluster infrastructure. OpsRadar 
   k8s.Manager           ← one client per kubeconfig context
      │ (parallel goroutines)
      ▼
-  k8s.Scanner           ← lists Deployments + metrics per namespace
+  k8s.Scanner           ← lists workloads + metrics per namespace
      │
      ▼
   github.Detector       ← detects source repo from annotations / images
      │
      ▼
-  agent.BobBackend      ← invokes `bob` CLI, parses JSON findings
+  agent.Backend         ← Claude API / Claude CLI / Bob, parses JSON findings
      │
      ▼
   store.SQLite          ← persists scans, targets, findings
      │
      ▼
-  Fiber SSE handler     ← streams ProgressEvents to dashboard
+  Fiber API             ← SSE scan stream · REST cluster ops · exec WebSocket
+     │
+     ▼
+  Next.js dashboard     ← radar, findings, cluster browser, settings
 ```
 
 ## Next steps
 
-- [Quickstart](/docs/quickstart) — run OpsRadar in 60 seconds
-- [Configuration](/docs/configuration) — all environment variables
+- [Install & Run](/docs/quickstart) — get OpsRadar running in a minute
+- [Configuration](/docs/configuration) — settings, environment variables, the AI backend
+- [Connect GitHub](/docs/github) — PAT, OAuth App, and PR generation
+- [Cluster Operations](/docs/cluster) — browse and operate clusters from the UI
 - [API Reference](/docs/api-reference) — every HTTP endpoint

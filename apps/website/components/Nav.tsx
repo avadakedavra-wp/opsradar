@@ -82,7 +82,7 @@ export default function Nav() {
 
           {/* CTA */}
           <a
-            href="#docs"
+            href="/docs"
             className="hidden sm:inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
             style={{ background: "var(--accent)" }}
           >
@@ -104,7 +104,7 @@ export default function Nav() {
       {/* Mobile menu */}
       {menuOpen && (
         <div className="md:hidden border-t px-4 py-4 flex flex-col gap-3 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
-          {[["#product", t.product], ["#docs", t.docs], ["https://github.com", t.github]].map(([href, label]) => (
+          {[["#product", t.product], ["/docs", t.docs], ["https://github.com", t.github]].map(([href, label]) => (
             <a key={href} href={href} onClick={() => setMenuOpen(false)} style={{ color: "var(--text-muted)" }} className="hover:text-[var(--text)]">{label}</a>
           ))}
         </div>

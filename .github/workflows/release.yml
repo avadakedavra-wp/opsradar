@@ -127,6 +127,10 @@ jobs:
             cp scripts/opsradar "release/${DIR}/bin/opsradar"
             chmod +x "release/${DIR}/bin/opsradar"
 
+            # Stamp the real version into the CLI wrapper (__DASHBOARD_DIR__ is
+            # left to the script's ~/.opsradar/dashboard runtime fallback).
+            sed -i "s|__VERSION__|${VERSION}|g" "release/${DIR}/bin/opsradar"
+
             # Dashboard bundle
             cp dist/dashboard.tar.gz "release/${DIR}/dashboard.tar.gz"
 

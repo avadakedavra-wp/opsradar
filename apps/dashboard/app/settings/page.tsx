@@ -273,7 +273,9 @@ function GitHubOAuthCard({ settings, onSaved }: { settings: Settings; onSaved: (
     setConnecting(true);
     setAlert(null);
     try {
-      const res  = await fetch(`${API_URL}/github/oauth/start`);
+      // Pass our origin so OAuth returns here regardless of the dashboard port.
+      const ret = encodeURIComponent(window.location.origin);
+      const res  = await fetch(`${API_URL}/github/oauth/start?return=${ret}`);
       const data = await res.json();
       if (data.error) { setAlert({ type: "error", text: data.error }); return; }
       window.location.href = data.url;
@@ -289,8 +291,15 @@ function GitHubOAuthCard({ settings, onSaved }: { settings: Settings; onSaved: (
     onSaved();
   }
 
+  // Show the REAL URLs to register, derived from where the app actually runs, so
+  // they stay correct on any port. Homepage = this dashboard's origin; callback =
+  // the API base (must match the GitHub OAuth App's Authorization callback URL).
+  const [homepageUrl, setHomepageUrl] = useState("http://localhost:3000");
+  useEffect(() => { setHomepageUrl(window.location.origin); }, []);
+  const callbackUrl = `${API_URL}/github/oauth/callback`;
+
   function copyCallback() {
-    navigator.clipboard.writeText("http://localhost:8080/github/oauth/callback");
+    navigator.clipboard.writeText(callbackUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
@@ -345,11 +354,11 @@ function GitHubOAuthCard({ settings, onSaved }: { settings: Settings; onSaved: (
               </div>
               <div className="flex">
                 <span className="text-[#484f58] w-36 shrink-0">Homepage URL</span>
-                <span className="text-[#f0f6fc]">http://localhost:3000</span>
+                <span className="text-[#f0f6fc]">{homepageUrl}</span>
               </div>
               <div className="flex items-center">
                 <span className="text-[#484f58] w-36 shrink-0">Callback URL</span>
-                <span className="text-[#3fb950] flex-1">http://localhost:8080/github/oauth/callback</span>
+                <span className="text-[#3fb950] flex-1 break-all">{callbackUrl}</span>
                 <button onClick={copyCallback}
                         className="ml-2 text-[#484f58] hover:text-[#8b949e] transition-colors flex items-center gap-1 text-[10px]"
                         title="Copy">

@@ -64,6 +64,31 @@ func (h *K8sHandler) GetPodLogs(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"logs": logs, "pod": pod, "namespace": namespace})
 }
 
+// GetResourceYAML handles GET /k8s/yaml?kind=Deployment&namespace=X&name=Y&context=Z
+func (h *K8sHandler) GetResourceYAML(c *fiber.Ctx) error {
+	kind := c.Query("kind")
+	namespace := c.Query("namespace")
+	name := c.Query("name")
+	contextName := c.Query("context", "")
+	if kind == "" || name == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "kind and name required"})
+	}
+
+	client, err := h.k8s.ClientForContext(contextName)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	y, err := client.GetResourceYAML(c.Context(), kind, namespace, name)
+	if err != nil {
+		if isDialError(err) {
+			return c.JSON(fiber.Map{"yaml": "", "warning": "cluster unreachable: " + err.Error()})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(fiber.Map{"yaml": y, "kind": kind, "name": name, "namespace": namespace})
+}
+
 // RestartDeployment handles POST /k8s/deployments/restart
 func (h *K8sHandler) RestartDeployment(c *fiber.Ctx) error {
 	var req struct {

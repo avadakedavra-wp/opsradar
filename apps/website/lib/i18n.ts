@@ -188,7 +188,7 @@ Bob analyses the **source manifests** (what's in Git), not just the running stat
   footer: {
     tagline: "Kubernetes intelligence, AI-powered, locally owned.",
     links: [
-      { label: "Docs",    href: "#docs" },
+      { label: "Docs",    href: "/docs" },
       { label: "GitHub",  href: "https://github.com" },
       { label: "IBM Bob", href: "https://bob.ibm.com" },
     ],

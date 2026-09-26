@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -41,8 +42,12 @@ func (h *GitHubHandler) ScanRepos(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "paths required"})
 	}
 
-	ctx, cancel := context.WithTimeout(c.Context(), 120*time.Second)
-	defer cancel()
+	// Do NOT impose a timeout here: the AI backend already bounds this single
+	// Chat call with its own budget (BOB_TASK_TIMEOUT, default 3m) and returns a
+	// clear timeout error. A tighter deadline here silently pre-empts that budget
+	// — it was killing scans at 120s even though the backend allowed 180s, and
+	// reported a misleading "timed out after 3m0s". Let the backend govern.
+	ctx := c.Context()
 
 	// Build rich context for each repo.
 	var sb strings.Builder
@@ -97,9 +102,21 @@ func (h *GitHubHandler) ScanRepos(c *fiber.Ctx) error {
 				}
 			}
 		}
+
+		// Inline real source code so the AI reviews actual code for smells & bugs,
+		// not just config. Curated + capped server-side (see collectSourceFiles).
+		if srcs := collectSourceFiles(p); len(srcs) > 0 {
+			sb.WriteString(fmt.Sprintf("\nSource files for code review (%d, truncated):\n", len(srcs)))
+			for _, f := range srcs {
+				lang := strings.TrimPrefix(filepath.Ext(f.path), ".")
+				sb.WriteString(fmt.Sprintf("\n### %s\n```%s\n%s\n```\n", f.path, lang, f.body))
+			}
+		}
 	}
 
-	prompt := `You are a DevOps, security, and CI/CD expert. Analyze the following repositories and return ONLY a valid JSON object — no markdown, no explanation, just raw JSON.
+	prompt := `You are a staff-level engineer doing a rigorous code review plus a DevOps/security audit. Analyze ONLY the repository information and SOURCE FILES provided below — do NOT attempt to read files or access the filesystem; everything you need is inline. Return ONLY a valid JSON object — no markdown, no explanation, just raw JSON.
+
+Prioritize REAL code findings from the source files over generic config advice. Be concise: return AT MOST the 12 most important findings per repo, highest severity first. Every finding must be specific and actionable — point to the exact file and, when possible, the symbol or line. Keep "detail" to 1-2 sentences and "fix" to a short, directly-usable snippet. Do NOT invent files you were not shown, and do NOT pad with speculative or low-value findings.
 
 Schema:
 {
@@ -107,29 +124,25 @@ Schema:
     {
       "repo": "<repo name>",
       "severity": "<critical|high|medium|low|info>",
-      "category": "<Security|CI/CD|Quality|Dependencies|Documentation|Container>",
-      "file": "<relative file path or empty string>",
+      "category": "<Security|Bug|Code Quality|Performance|CI/CD|Dependencies|Container|Documentation>",
+      "file": "<relative file path from the source files above, or empty string>",
       "title": "<short title, max 80 chars>",
-      "detail": "<explanation of the problem, 1-3 sentences>",
-      "fix": "<concrete fix: a code snippet, yaml block, or shell command>"
+      "detail": "<what's wrong and why it matters, 1-2 sentences; name the function/line when you can>",
+      "fix": "<concrete corrected code snippet or command>"
     }
   ]
 }
 
-Check for every repo:
-- Missing or misconfigured CI/CD workflows (.github/workflows)
-- Unpinned GitHub Actions (use @SHA not @branch)
-- Missing branch protection, no code review requirements
-- Secrets or tokens that look hardcoded
-- Missing .gitignore, .dockerignore
-- Missing or empty README
-- Missing Dockerfile / no container strategy
-- Missing health checks in Docker/k8s
-- Dependency files without lockfiles
-- No test step in CI
-- Large binary files or no .gitattributes
-- Stale or single-commit repos with no meaningful history
-- Missing LICENSE file
+Review the SOURCE FILES for real issues:
+- Bugs & correctness: nil/undefined derefs, unchecked errors, off-by-one, wrong conditionals, resource leaks (unclosed files/conns), goroutine/promise leaks, race conditions
+- Security in code: injection (SQL/command/path), unsanitized input, hardcoded secrets/keys, weak crypto, missing authz checks, unsafe deserialization, SSRF
+- Code smells: dead code, duplication, overly long functions, deep nesting, magic numbers, poor naming, swallowed errors, missing input validation, tight coupling
+- Performance: N+1 queries, work in hot loops, unbounded memory/allocations, blocking calls on hot paths
+
+Also audit config & delivery:
+- Unpinned GitHub Actions (@SHA not @tag), missing CI test/lint steps, no branch protection
+- Missing .gitignore/.dockerignore, secrets not ignored, no lockfile
+- Dockerfile issues (root user, latest tag, no healthcheck), missing README/LICENSE
 
 Return only the JSON. No other text.
 
@@ -143,6 +156,13 @@ Repositories:
 
 	// Extract JSON from response (model may wrap it in ```json blocks)
 	findings := extractFindings(reply)
+	if len(findings) == 0 && strings.TrimSpace(reply) != "" {
+		head := reply
+		if len(head) > 600 {
+			head = head[:600]
+		}
+		log.Printf("github scan: parsed 0 findings from a %d-char reply — head: %q", len(reply), head)
+	}
 	return c.JSON(fiber.Map{"findings": findings, "repos": req.Paths})
 }
 
@@ -242,6 +262,91 @@ func buildRepoInfo(path string) LocalRepo {
 		HasDotGithub: hasDotGithub,
 		Workflows:    workflows,
 	}
+}
+
+// sourceFile is one human-written file inlined into the scan prompt for review.
+type sourceFile struct {
+	path string // path relative to the repo root
+	body string // contents, possibly truncated
+}
+
+// collectSourceFiles walks a repo and returns a prioritized, size-capped set of
+// human-written source files worth reviewing for code smells — deliberately
+// skipping vendored deps, build output, lockfiles, generated code, and tests so
+// the AI spends its budget on code the author actually owns. Caps keep the prompt
+// small enough to stay well under the scan timeout.
+func collectSourceFiles(root string) []sourceFile {
+	const (
+		maxFiles     = 10
+		perFileBytes = 6 * 1024  // ~150 lines per file
+		totalBytes   = 30 * 1024 // whole-repo code budget
+	)
+	skipDir := map[string]bool{
+		"node_modules": true, "vendor": true, ".git": true, "dist": true,
+		"build": true, ".next": true, "out": true, "target": true,
+		"__pycache__": true, ".venv": true, "venv": true, "coverage": true,
+		"testdata": true, "bin": true, "obj": true,
+	}
+	okExt := map[string]bool{
+		".go": true, ".ts": true, ".tsx": true, ".js": true, ".jsx": true,
+		".py": true, ".rb": true, ".java": true, ".rs": true, ".php": true,
+		".c": true, ".cpp": true, ".cs": true, ".sh": true, ".tf": true, ".kt": true,
+	}
+	okName := map[string]bool{"Dockerfile": true, "Makefile": true}
+
+	var files []sourceFile
+	total := 0
+
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if len(files) >= maxFiles || total >= totalBytes {
+			return filepath.SkipAll
+		}
+		if d.IsDir() {
+			base := d.Name()
+			if path != root && (skipDir[base] || strings.HasPrefix(base, ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if !okExt[strings.ToLower(filepath.Ext(name))] && !okName[name] {
+			return nil
+		}
+		// Skip generated / minified / test noise — low signal, high token cost.
+		lower := strings.ToLower(name)
+		switch {
+		case strings.HasSuffix(lower, ".min.js"),
+			strings.HasSuffix(lower, "_test.go"),
+			strings.HasSuffix(lower, ".test.ts"), strings.HasSuffix(lower, ".test.tsx"),
+			strings.HasSuffix(lower, ".spec.ts"), strings.HasSuffix(lower, ".spec.tsx"),
+			strings.HasSuffix(lower, ".pb.go"), strings.HasSuffix(lower, ".gen.go"),
+			strings.HasSuffix(lower, "_generated.go"):
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil || info.Size() > 512*1024 {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		body := string(data)
+		if len(body) > perFileBytes {
+			body = body[:perFileBytes] + "\n… (truncated)"
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = name
+		}
+		files = append(files, sourceFile{path: rel, body: body})
+		total += len(body)
+		return nil
+	})
+	return files
 }
 
 // extractFindings pulls a JSON findings array out of an AI response that may

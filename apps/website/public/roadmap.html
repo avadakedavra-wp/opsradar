@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OpsRadar — What's Next (Roadmap)</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css" />
+
+<style>
+  :root {
+    --bg: #0b0c0e;
+    --panel: #141519;
+    --panel-2: #1a1c22;
+    --border: #262932;
+    --text: #e7e9ee;
+    --muted: #9aa2ae;
+    --accent: #4c9ffe;
+    --accent-dim: rgba(76,159,254,.14);
+    --crit: #ef4444;
+    --high: #f59e0b;
+    --med: #eab308;
+    --low: #3b82f6;
+    --ok: #22c55e;
+    --ok-dim: rgba(34,197,94,.12);
+    --mono: "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  .reveal { font-family: var(--sans); font-size: 30px; color: var(--text); }
+  .reveal .slides { text-align: left; }
+  .reveal .slides section { height: 100%; }
+  html, body { background: var(--bg); }
+  .reveal .slide-background { background: var(--bg); }
+
+  .reveal h1, .reveal h2, .reveal h3 { color: var(--text); text-transform: none; letter-spacing: -.02em; font-weight: 800; line-height: 1.1; margin: 0 0 .35em; }
+  .reveal h1 { font-size: 1.9em; }
+  .reveal h2 { font-size: 1.4em; }
+  .reveal h3 { font-size: 1em; font-weight: 700; }
+  .reveal p, .reveal li { color: var(--text); line-height: 1.4; }
+  .reveal strong { color: #fff; font-weight: 700; }
+  .reveal em { color: var(--muted); font-style: italic; }
+
+  .kicker { font-family: var(--mono); font-size: .5em; letter-spacing: .18em; color: var(--muted); text-transform: uppercase; margin-bottom: .8em; display: block; }
+  .kicker .n { color: var(--accent); }
+  .lead { font-size: 1.02em; color: var(--muted); max-width: 26em; }
+  .muted { color: var(--muted); }
+  .big-metric { font-family: var(--mono); color: var(--accent); font-weight: 800; }
+
+  .row { display: flex; gap: .5em; flex-wrap: wrap; align-items: center; }
+  .pill { font-family: var(--mono); font-size: .48em; padding: .35em .8em; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .pill.accent { color: var(--accent); border-color: rgba(76,159,254,.5); background: var(--accent-dim); }
+  .pill.ok { color: var(--ok); border-color: rgba(34,197,94,.45); background: var(--ok-dim); }
+
+  .brandmark { display: inline-flex; align-items: center; justify-content: center; width: 1.5em; height: 1.5em; border-radius: 8px; background: var(--accent); color: #041022; font-weight: 900; font-size: .8em; font-family: var(--mono); }
+  .footer-note { position: absolute; bottom: 12px; left: 20px; font-family: var(--mono); font-size: .38em; color: var(--muted); letter-spacing: .1em; }
+  .reveal .slide-number { background: transparent; color: var(--muted); font-family: var(--mono); }
+
+  /* shipped vs next board */
+  .board { display: grid; grid-template-columns: 1fr 1fr; gap: .9em; margin-top: .2em; }
+  .col { border: 1px solid var(--border); border-radius: 16px; padding: .85em 1em; background: var(--panel); }
+  .col.shipped { border-color: rgba(34,197,94,.35); }
+  .col.next { border-color: rgba(76,159,254,.4); }
+  .col .h { display: flex; align-items: center; gap: .5em; font-family: var(--mono); font-size: .58em; letter-spacing: .12em; text-transform: uppercase; margin-bottom: .55em; }
+  .col.shipped .h { color: var(--ok); }
+  .col.next .h { color: var(--accent); }
+  .col ul { list-style: none; margin: 0; padding: 0; }
+  .col li { display: flex; gap: .5em; align-items: flex-start; font-size: .58em; margin: .38em 0; line-height: 1.3; }
+  .col li .ic { flex: none; width: 1em; height: 1em; margin-top: .12em; }
+  .ic.check { color: var(--ok); }
+  .ic.next { color: var(--accent); }
+
+  /* metric cards */
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: .7em; margin: .4em 0; }
+  .metric { border: 1px solid var(--border); border-radius: 16px; padding: .9em 1em; background: var(--panel); }
+  .metric .v { font-family: var(--mono); font-weight: 800; font-size: 1.5em; color: var(--accent); }
+  .metric .v.ok { color: var(--ok); }
+  .metric .l { font-size: .52em; color: var(--muted); margin-top: .25em; line-height: 1.3; }
+
+  .mermaid { background: transparent; }
+  .reveal .mermaid svg { max-width: 100%; height: auto; }
+  .two-col { display: grid; grid-template-columns: 1.1fr .9fr; gap: 1.1em; align-items: center; }
+  .note { font-size: .5em; color: var(--muted); font-family: var(--mono); margin-top: .6em; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+  <!-- 0 · TITLE -->
+  <section data-background-color="#0b0c0e">
+    <div class="row" style="gap:.6em; margin-bottom:1em;">
+      <span class="brandmark">OR</span>
+      <span class="pill accent">ROADMAP</span>
+    </div>
+    <h1>What's Next</h1>
+    <p class="lead" style="font-size:1.15em; max-width:24em; margin-top:.2em;">
+      The core loop works <strong>today</strong>. Next is scale and autonomy — <span class="big-metric">not a rewrite.</span>
+    </p>
+    <div class="footer-note">IBM BOB 2.0 HACKATHON · OPSRADAR · grapestd</div>
+  </section>
+
+  <!-- 1 · SHIPPED vs NEXT -->
+  <section>
+    <span class="kicker"><span class="n">01</span> · WHERE WE ARE → WHERE WE'RE GOING</span>
+    <div class="board">
+      <div class="col shipped">
+        <div class="h">
+          <svg class="ic check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:1.1em;height:1.1em;"><path d="M20 6 9 17l-5-5"/></svg>
+          Shipped today
+        </div>
+        <ul>
+          <li><svg class="ic check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Scan every kubeconfig context, in parallel</li>
+          <li><svg class="ic check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Bob diagnoses each workload</li>
+          <li><svg class="ic check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Strategic merge patch generated</li>
+          <li><svg class="ic check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>One-click GitHub PR, or apply live</li>
+          <li><svg class="ic check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Cluster ops: YAML, logs, scale, pod shell</li>
+          <li><svg class="ic check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>6 workload types · 3 AI backends</li>
+        </ul>
+      </div>
+      <div class="col next">
+        <div class="h">
+          <svg class="ic next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:1.1em;height:1.1em;"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          Next
+        </div>
+        <ul>
+          <li><svg class="ic next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg><strong>Verification loop</strong> — radar red → green after a fix</li>
+          <li><svg class="ic next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg><strong>Continuous scan + drift</strong> → auto-open PRs</li>
+          <li><svg class="ic next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg><strong>Bob orchestrates observability</strong> (Grafana / Prometheus / events)</li>
+          <li><svg class="ic next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg><strong>Impact report</strong> — cores &amp; $ saved</li>
+          <li><svg class="ic next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg><strong>Policy packs · GitHub Checks</strong> (shift-left)</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">Green = working in today's demo. Blue = the trajectory, built on the same engine.</p>
+  </section>
+
+  <!-- 2 · SELF-HEALING LOOP -->
+  <section>
+    <span class="kicker"><span class="n">02</span> · THE SELF-HEALING LOOP</span>
+    <div class="two-col">
+      <pre class="mermaid">
+flowchart LR
+  SCAN[Scan cluster] --> DIAG[Bob diagnoses]
+  DIAG --> FIX[Fix: PR or live apply]
+  FIX --> VER{Re-scan}
+  VER -->|resolved| GREEN[Radar: red to green]
+  VER -->|still failing| DIAG
+  GREEN --> SCAN
+      </pre>
+      <div>
+        <h2 style="font-size:1.25em;">Prove it fixed it.</h2>
+        <p class="lead" style="font-size:.9em;">Today OpsRadar stops after shipping the patch. Next: it <strong>re-scans automatically</strong> and shows the finding clear — measurable before / after.</p>
+        <div class="row" style="margin-top:.8em;">
+          <span class="pill ok">90% already built</span>
+          <span class="pill">resolve + re-scan + radar exist</span>
+        </div>
+      </div>
+    </div>
+    <p class="note">This is the highest-impact next step: biggest "wow" for the lowest build cost.</p>
+  </section>
+
+  <!-- 3 · BOB AS ORCHESTRATOR -->
+  <section>
+    <span class="kicker"><span class="n">03</span> · BOB AS ORCHESTRATOR</span>
+    <h2 style="font-size:1.2em;">From config lint → root-cause reasoning.</h2>
+    <pre class="mermaid">
+flowchart LR
+  subgraph SRC["Signals OpsRadar collects"]
+    K[K8s manifests + events]
+    M[Metrics: Prometheus / Grafana]
+    L[Pod logs]
+    G[GitHub source + history]
+  end
+  K --> BOB[Bob correlates + reasons]
+  M --> BOB
+  L --> BOB
+  G --> BOB
+  BOB --> RC[Root cause + fix patch]
+  RC --> OUT[Open PR / live apply]
+    </pre>
+    <p class="note">Today Bob reads the manifest. Next: it reasons over metrics, events and logs together — like an SRE looking at every signal at once.</p>
+  </section>
+
+  <!-- 4 · IMPACT MEASURED -->
+  <section>
+    <span class="kicker"><span class="n">04</span> · IMPACT, MEASURED</span>
+    <h2>Turn findings into a number.</h2>
+    <div class="metrics">
+      <div class="metric"><div class="v ok">42</div><div class="l">cores reclaimed from right-sizing</div></div>
+      <div class="metric"><div class="v">$3.1k</div><div class="l">estimated monthly cloud spend saved</div></div>
+      <div class="metric"><div class="v">17</div><div class="l">risky configs fixed before incident</div></div>
+    </div>
+    <p class="lead" style="margin-top:.5em;">Every scan produces a savings report per namespace — the ROI story leadership signs off on.</p>
+    <p class="note">Numbers illustrative — wire to live metrics before presenting.</p>
+  </section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      background: "#0b0c0e",
+      primaryColor: "#141519",
+      primaryTextColor: "#e7e9ee",
+      primaryBorderColor: "#4c9ffe",
+      lineColor: "#5b6472",
+      secondaryColor: "#141519",
+      tertiaryColor: "#12141a",
+      clusterBkg: "#101216",
+      clusterBorder: "#262932",
+      fontFamily: "ui-monospace, monospace",
+      fontSize: "16px"
+    },
+    flowchart: { curve: "basis", htmlLabels: true, padding: 8 }
+  });
+
+  Reveal.initialize({
+    hash: true,
+    slideNumber: "c/t",
+    transition: "fade",
+    transitionSpeed: "fast",
+    width: 1280,
+    height: 720,
+    margin: 0.06,
+    plugins: [RevealNotes]
+  });
+</script>
+</body>
+</html>

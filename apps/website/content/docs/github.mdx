@@ -1,0 +1,72 @@
+---
+title: Connect GitHub
+description: Connect GitHub to open fix PRs, scan repositories, and apply fixes.
+---
+
+# Connect GitHub
+
+Connecting GitHub unlocks the "fix" half of OpsRadar:
+
+- **PR generation** — turn any finding's diff patch into a real pull request.
+- **Repository scanning** — point the AI backend at local git repos and get findings for CI/CD, security, quality, and docs.
+
+You can connect in **two ways** — a personal access token (fastest) or a GitHub OAuth App (nicest UX). Both end with a `GITHUB_TOKEN` saved to `~/.opsradar/.env`. Do it all from the dashboard's **Settings** page.
+
+## Option 1 — Personal access token (fastest)
+
+1. Create a token at **GitHub → Settings → Developer settings → Personal access tokens**.
+2. Grant the **`repo`** scope. That's all OpsRadar needs; no admin or delete permissions are used.
+3. In OpsRadar → **Settings**, paste it into **`GITHUB_TOKEN`** and save.
+4. Click **Test** — OpsRadar calls `GET /user` and reports the connected login (`Connected as @you`).
+
+Optionally set **`GITHUB_REPO`** (`owner/repo`) as the fallback target for findings whose source repo can't be [auto-detected](/docs/github-detection). Testing it confirms the repo is accessible.
+
+The token only needs to:
+
+- read the default branch SHA
+- create branches
+- commit files
+- open pull requests
+
+## Option 2 — Connect with GitHub (OAuth App)
+
+This gives you a "Connect with GitHub" button instead of pasting a token.
+
+**One-time: register an OAuth App** at **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**:
+
+- **Authorization callback URL:** `http://localhost:8080/github/oauth/callback`
+- Copy the **Client ID** and generate a **Client secret**.
+
+**In OpsRadar → Settings:**
+
+1. Enter **`GITHUB_CLIENT_ID`** and **`GITHUB_CLIENT_SECRET`**, save.
+2. Click **Connect with GitHub**. OpsRadar builds the authorize URL (`scope=repo`) and sends you to GitHub.
+3. Approve. GitHub redirects to the callback, OpsRadar exchanges the code for a token, saves it as `GITHUB_TOKEN`, and returns you to Settings showing **connected**.
+
+Check the connection any time with `GET /github/oauth/status`, which returns `{ "connected": true, "login": "you" }`.
+
+> **Port note:** the OAuth callback and the post-connect redirect are wired to the Docker/dev ports (API `:8080`, dashboard `:3000`). If you run the CLI (dashboard on `:6689`), the token is still saved correctly on the API side — just reopen **Settings** at `:6689` to confirm the connection.
+
+## Generate a fix PR
+
+Once connected, every finding with a diff patch gets a **Generate PR** action. Under the hood:
+
+```
+POST /pr/generate   { "finding_id": "<uuid>" }
+```
+
+OpsRadar creates a branch, commits the finding's diff patch to the source file, and opens a PR — returning `{ "pr_url": "https://github.com/owner/repo/pull/42" }`. The target repo is the one [detected](/docs/github-detection) for the workload, falling back to `GITHUB_REPO`. Findings without a diff patch can't produce a PR (`400`).
+
+Prefer to fix the running cluster directly instead of via Git? Use [Apply a finding's fix](/docs/cluster#acting).
+
+## Scan local repositories
+
+OpsRadar can also review git repos on your machine — a separate flow from cluster scanning.
+
+- **List repos:** `GET /github/repos?root=<path>` walks up to 3 levels below `root` (defaults to your home directory) and returns the git repos it finds.
+- **Scan:** `POST /github/scan` with `{ "paths": ["/abs/path/to/repo", ...] }`. OpsRadar gathers branch, remote, recent commits, workflows, and key files, then asks the AI backend for findings across **Security, CI/CD, Quality, Dependencies, and Documentation**. Each finding includes a `file`, a `severity`, and a `fix`.
+- **Apply a fix:** `POST /github/fix` with `{ "repo_path", "file", "fix", "title", "detail" }` to write a suggested fix into the repo.
+
+## Related
+
+- [GitHub Detection](/docs/github-detection) — how OpsRadar figures out which repo owns a given workload, so PRs land in the right place.

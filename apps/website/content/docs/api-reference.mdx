@@ -7,7 +7,7 @@ description: Complete HTTP API reference for the OpsRadar backend.
 
 Base URL: `http://localhost:8080`
 
-All routes except `GET /health` require `X-API-Key` when `OPS_RADAR_API_KEY` is set.
+All routes except `GET /health` require the `X-API-Key` header when `OPS_RADAR_API_KEY` is set. The one exception is the pod-exec WebSocket, which authenticates with a `?key=` query parameter because a browser WebSocket handshake can't send custom headers.
 
 ---
 
@@ -181,7 +181,7 @@ Returns `400` if the finding has no `diff_patch`.
 
 ## Findings
 
-### `GET /findings/:id/resolve`
+### `POST /findings/:id/resolve`
 
 Mark a finding as resolved. Sets `resolved_at` to now. The next `GET /radar` will exclude it.
 
@@ -212,3 +212,115 @@ Lists all containers on the Docker host running the API (calls `docker ps -a`).
   ]
 }
 ```
+
+---
+
+## Cluster operations
+
+See [Cluster Operations](/docs/cluster) for the full walkthrough. Every endpoint takes an optional `?context=` to select a kubeconfig context (omit for the default).
+
+### Discovery
+
+| Method & path | Query | Returns |
+|---|---|---|
+| `GET /k8s/contexts` | — | Loaded kubeconfig contexts |
+| `GET /k8s/namespaces` | `context` | Namespaces in the context |
+| `GET /k8s/pods` | `context`, `namespace` | Running pods |
+
+### Workload lists
+
+`GET /k8s/deployments` · `/k8s/daemonsets` · `/k8s/statefulsets` · `/k8s/replicasets` · `/k8s/jobs` · `/k8s/cronjobs` — each accepts `?context=` and `?namespace=`.
+
+### Inspection
+
+| Method & path | Notes |
+|---|---|
+| `GET /k8s/yaml?kind=&namespace=&name=&context=` | Live manifest of a resource |
+| `GET /k8s/pods/:namespace/:pod/logs?container=&context=` | Recent pod logs |
+| `GET /k8s/ha-analysis?context=` | High-availability findings, `{ "findings": [...] }` |
+
+### Mutations
+
+| Method & path | Body |
+|---|---|
+| `POST /k8s/deployments/restart` | `{ "context", "namespace", "deployment" }` |
+| `POST /k8s/deployments/scale` | `{ "context", "namespace", "deployment", "replicas" }` (0–50) |
+| `DELETE /k8s/pods/:namespace/:pod?context=` | — |
+| `POST /k8s/apply` | `{ "context", "yaml" }` |
+| `POST /k8s/findings/:id/apply` | applies the finding's diff patch to the live workload; `400` if none |
+
+### `GET /k8s/exec` (WebSocket)
+
+Interactive pod shell. Authenticates via `?key=<OPS_RADAR_API_KEY>` when the key is set. Client → server messages:
+
+```json
+{ "type": "stdin", "data": "ls\n" }
+{ "type": "resize", "cols": 120, "rows": 30 }
+```
+
+Server streams stdout back as text frames.
+
+---
+
+## Settings
+
+Reads and writes `~/.opsradar/.env`. Sensitive keys are masked in responses. See [Configuration](/docs/configuration).
+
+### `GET /settings`
+
+```json
+{
+  "settings": {
+    "ANTHROPIC_API_KEY": { "configured": true, "sensitive": true, "preview": "••••••••1234" },
+    "GITHUB_REPO":       { "configured": true, "sensitive": false, "value": "myorg/myrepo" }
+  }
+}
+```
+
+### `POST /settings`
+
+Merge updates (empty string removes a key). Only whitelisted keys are accepted; changes apply to the running process immediately.
+
+```json
+{ "ANTHROPIC_API_KEY": "sk-ant-...", "GITHUB_REPO": "myorg/myrepo" }
+```
+
+### `POST /settings/test`
+
+Live-tests a value (`ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, or `GITHUB_REPO`). Omit `value` to test the saved one.
+
+```json
+{ "key": "GITHUB_TOKEN", "value": "ghp_..." }
+```
+
+Returns `{ "ok": true, "message": "Connected as @you" }`.
+
+---
+
+## Ask Bob
+
+### `POST /bob/chat`
+
+Free-form question to the AI backend, optionally grounded in live cluster state.
+
+---
+
+## GitHub
+
+See [Connect GitHub](/docs/github).
+
+### OAuth App flow
+
+| Method & path | Purpose |
+|---|---|
+| `GET /github/oauth/start` | Returns `{ "url": "<github authorize url>" }` |
+| `GET /github/oauth/callback` | GitHub redirect target; exchanges the code, saves `GITHUB_TOKEN` |
+| `GET /github/oauth/status` | `{ "connected": true, "login": "you" }` |
+
+### Local repository scanning
+
+| Method & path | Body / query |
+|---|---|
+| `GET /github/repos?root=<path>` | Lists git repos up to 3 levels under `root` (default: home) |
+| `POST /github/scan` | `{ "paths": ["/abs/repo", ...] }` → AI findings per repo |
+| `POST /github/fix` | `{ "repo_path", "file", "fix", "title", "detail" }` |

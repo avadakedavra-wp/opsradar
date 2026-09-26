@@ -1,0 +1,84 @@
+---
+title: Cluster Operations
+description: Browse and operate your Kubernetes clusters from the OpsRadar dashboard.
+---
+
+# Cluster Operations
+
+Beyond scanning, OpsRadar is a live cluster browser. The **Cluster** page lets you pick a context, drill into namespaces and workloads, read logs, open a shell, and act on what you find — without leaving the browser or reaching for `kubectl`.
+
+Everything here uses your existing kubeconfig credentials. OpsRadar never stores cluster credentials of its own.
+
+## How cluster access works
+
+On startup OpsRadar calls `k8s.LoadAll`, which loads **every** context from your `KUBECONFIG` (defaults to `~/.kube/config`; colon-separated lists are merged). Each context becomes its own client:
+
+- A context that can't connect is skipped, not fatal — it just won't appear.
+- Each reachable context is verified for the permissions OpsRadar needs; missing permissions are logged as a warning.
+- If no context is reachable, cluster features are disabled and the rest of the app still runs.
+
+Most endpoints take an optional `?context=` query parameter. Omit it to use the default context.
+
+## Browsing
+
+Pick a context, then a namespace, then a workload kind. OpsRadar lists all six workload kinds:
+
+| Workload | Endpoint |
+|---|---|
+| Deployments | `GET /k8s/deployments` |
+| DaemonSets | `GET /k8s/daemonsets` |
+| StatefulSets | `GET /k8s/statefulsets` |
+| ReplicaSets | `GET /k8s/replicasets` |
+| Jobs | `GET /k8s/jobs` |
+| CronJobs | `GET /k8s/cronjobs` |
+
+Each accepts `?context=` and `?namespace=`. Discover what's available first with `GET /k8s/contexts` and `GET /k8s/namespaces`, and list running pods with `GET /k8s/pods`.
+
+## Inspecting
+
+**Resource YAML** — fetch the live manifest of any resource:
+
+```
+GET /k8s/yaml?kind=Deployment&namespace=prod&name=api-server&context=prod
+```
+
+**Pod logs** — read recent logs, optionally scoped to a container:
+
+```
+GET /k8s/pods/prod/api-server-abc123/logs?container=app&context=prod
+```
+
+**Interactive shell** — the pod detail view opens a full terminal (`PodExecTerminal`) over a WebSocket at `/k8s/exec`. Because a browser WebSocket handshake can't send an `X-API-Key` header, the terminal authenticates with a `?key=` query parameter when `OPS_RADAR_API_KEY` is set. The stream carries `stdin`, terminal `resize` events, and stdout back to the browser.
+
+## Acting
+
+These operations change live cluster state, so treat them like any `kubectl` command:
+
+| Action | Request |
+|---|---|
+| Rollout restart | `POST /k8s/deployments/restart` — `{ "context", "namespace", "deployment" }` |
+| Scale | `POST /k8s/deployments/scale` — `{ "context", "namespace", "deployment", "replicas" }` (0–50) |
+| Delete pod | `DELETE /k8s/pods/:namespace/:pod?context=` |
+| Apply YAML | `POST /k8s/apply` — `{ "context", "yaml" }` |
+| Apply a finding's fix | `POST /k8s/findings/:id/apply` |
+
+**Apply a finding's fix** is the fast path from diagnosis to remediation: it takes the diff patch attached to a finding and applies it to the target Deployment in the cluster — the in-cluster counterpart to opening a [GitHub PR](/docs/github). It returns `400` if the finding has no diff patch.
+
+## HA analysis
+
+```
+GET /k8s/ha-analysis?context=
+```
+
+Returns high-availability findings for the cluster — single-replica Deployments, missing PodDisruptionBudgets, workloads without anti-affinity, and similar risks — computed directly from live state (no AI backend required).
+
+## From finding to fix
+
+The cluster page and the scan flow converge on the same choice for every finding:
+
+1. **Generate PR** — commit the fix to the source repo for review ([Connect GitHub](/docs/github)).
+2. **Apply** — patch the live cluster now via `POST /k8s/findings/:id/apply`.
+
+Use the PR path when the workload is GitOps-managed and the cluster path for break-glass fixes.
+
+> All `/k8s/*` endpoints require `X-API-Key` when `OPS_RADAR_API_KEY` is set (the exec WebSocket uses `?key=` instead). See the [API Reference](/docs/api-reference#cluster-operations) for full details.

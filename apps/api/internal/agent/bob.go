@@ -151,7 +151,21 @@ Live metrics (millicores / MiB):
   "title": short one-line title
   "detail": explanation of the problem
   "suggestion": how to fix it
-  "diff_patch": a valid unified diff (--- a/deployment.yaml +++ b/deployment.yaml) fixing the issue, or "" if not applicable
+  "diff_patch": a Kubernetes STRATEGIC MERGE PATCH as a single-line JSON object that fixes
+                the issue when applied to the Deployment, or "" if not applicable.
+
+The diff_patch MUST:
+- be a JSON object rooted at the Deployment: the top-level key is "spec" or "metadata"
+- when changing container fields (resources, probes, image, env, securityContext), nest under
+  spec.template.spec.containers and include the EXACT container name from the manifest above
+- contain ONLY the fields you are changing — never a full manifest, never a bare fragment
+- NOT be a unified diff, NOT contain line numbers, NOT contain "---"/"+++"/"@@"
+
+Examples (copy this shape exactly):
+- Scale replicas:      {"spec":{"replicas":2}}
+- Set resources:       {"spec":{"template":{"spec":{"containers":[{"name":"<container>","resources":{"requests":{"cpu":"10m","memory":"128Mi"},"limits":{"memory":"256Mi"}}}]}}}}
+- Add readiness probe: {"spec":{"template":{"spec":{"containers":[{"name":"<container>","readinessProbe":{"httpGet":{"path":"/healthz","port":9402},"initialDelaySeconds":5,"periodSeconds":10}}]}}}}
+- Pin image digest:    {"spec":{"template":{"spec":{"containers":[{"name":"<container>","image":"repo/image@sha256:<digest>"}]}}}}
 
 Respond ONLY with a valid JSON array of these objects. No markdown, no code fences.`
 

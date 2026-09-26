@@ -1,101 +1,114 @@
 ---
-title: Seed Demo Cluster
+title: Demo Cluster
 description: Plant deliberate problems for a vivid OpsRadar demo.
 ---
 
-# Seed Demo Cluster
+# Demo Cluster
 
-The `seed/demo-cluster/` directory contains two Deployments with deliberate problems, designed to give Bob plenty to find during a demo.
+Want something for OpsRadar to find? Plant two Deployments with deliberate problems in a throwaway namespace. This is self-contained — copy and paste, nothing to clone.
 
-## Apply the seed
-
-```bash
-# Create the namespace
-kubectl create namespace ops-radar-demo --dry-run=client -o yaml | kubectl apply -f -
-
-# Apply all seed manifests
-kubectl apply -k seed/demo-cluster/
-```
-
-Or use the Makefile shortcut:
+## Apply the demo workloads
 
 ```bash
-make seed
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ops-radar-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: over-provisioned-app
+  namespace: ops-radar-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: over-provisioned-app }
+  template:
+    metadata:
+      labels: { app: over-provisioned-app }
+    spec:
+      containers:
+        - name: web
+          image: nginx:latest          # unpinned tag
+          resources:
+            requests:
+              cpu: "4000m"              # 4 full cores — actual usage is a few millicores
+              memory: "2Gi"
+          # no livenessProbe / readinessProbe
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: missing-limits-app
+  namespace: ops-radar-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: missing-limits-app }
+  template:
+    metadata:
+      labels: { app: missing-limits-app }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.25
+          # no resources block, no probes
+EOF
 ```
 
-## What's seeded
+## What OpsRadar finds
 
 ### `over-provisioned-app`
 
-```yaml
-resources:
-  requests:
-    cpu: "4000m"     # 4 full cores — actual usage ~12m
-    memory: "2Gi"
-image: nginx:latest  # unpinned tag
-# no livenessProbe
-# no readinessProbe
-```
-
-**Issues Bob finds:**
-- CPU massively over-provisioned (4000m requested vs ~12m actual)
+- CPU massively over-provisioned (4000m requested vs a few millicores actual)
 - Unpinned image tag `nginx:latest`
 - Missing liveness probe
 - Missing readiness probe
 
 ### `missing-limits-app`
 
-```yaml
-# no resources block at all
-image: nginx:1.25
-# no livenessProbe
-# no readinessProbe
-```
-
-**Issues Bob finds:**
 - No resource requests
 - No resource limits
 - Missing liveness probe
 - Missing readiness probe
 
-## Full demo walkthrough
+## Demo walkthrough
 
 ```bash
-# 1. Plant the problems
-kubectl apply -k seed/demo-cluster/
+# 1. Plant the problems (command above), then start OpsRadar
+opsradar start                       # or: docker compose -f deploy/docker-compose.yml up
 
-# 2. Start OpsRadar
-docker compose up
+# 2. Open the dashboard  (:6689 for the CLI, :3000 for Docker/dev)
+#    Click "Scan Now" — watch findings stream in live
 
-# 3. Open the dashboard
-open http://localhost:3000
+# 3. On a finding, either:
+#      • "Generate PR"  — open a fix PR on GitHub
+#      • "Apply"        — patch the live cluster now
 
-# 4. Click "Scan Now" — watch live stream, see findings
+# 4. Resolve a finding
+curl -X POST http://localhost:8080/findings/<id>/resolve
 
-# 5. Click "Generate PR" on a finding — verify PR on GitHub
-
-# 6. Resolve a finding
-curl http://localhost:8080/findings/<id>/resolve
-
-# 7. Click "Scan Now" again — radar goes green for resolved findings
+# 5. Scan again — the radar drops the resolved finding
 ```
 
-## Verify Bob finds all issues
+## Verify the radar
 
-After scanning, `GET /radar` should show at least:
+After a scan, `GET /radar` should show open findings under `ops-radar-demo`, for example:
 
 ```json
 {
   "radar": [
-    {
-      "namespace": "ops-radar-demo",
-      "critical": 2,
-      "high": 3,
-      "medium": 1,
-      "low": 0
-    }
+    { "namespace": "ops-radar-demo", "critical": 2, "high": 3, "medium": 1, "low": 0 }
   ]
 }
 ```
 
-Exact counts depend on your Bob Shell version and model.
+Exact counts depend on your AI backend and model.
+
+## Clean up
+
+```bash
+kubectl delete namespace ops-radar-demo
+```

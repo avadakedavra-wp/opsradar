@@ -8,12 +8,12 @@ import {
   restartDeployment, scaleDeployment, deletePod,
   PodInfo, WorkloadInfo, JobInfo, CronJobInfo,
 } from "@/lib/api";
-import PodDetailPanel from "@/components/PodDetailPanel";
+import ResourceDetailDrawer, { ResourceRef } from "@/components/ResourceDetailDrawer";
 import { useBob } from "@/lib/bob-context";
 import {
   AlertCircle, CheckCircle, X, ChevronDown,
   LayoutDashboard, Box, Cpu, Database, Globe, Briefcase, Clock,
-  RefreshCw, MessageCircle,
+  RefreshCw, MessageCircle, Search,
 } from "lucide-react";
 
 const SUB_NAV = [
@@ -47,10 +47,14 @@ function ReadyBadge({ ready, ok }: { ready: string; ok?: boolean }) {
 }
 
 // ── Workload table for Deployments / DaemonSets / StatefulSets / ReplicaSets ──
-function WorkloadTable({ items, loading, error }: {
+function WorkloadTable({ items, loading, error, kind, context, selectedName, onSelect }: {
   items: WorkloadInfo[];
   loading: boolean;
   error: string | null;
+  kind: string;
+  context: string;
+  selectedName?: string;
+  onSelect: (r: ResourceRef) => void;
 }) {
   if (error) return (
     <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md m-5 px-3 py-2">
@@ -83,10 +87,16 @@ function WorkloadTable({ items, loading, error }: {
           const ready = parseInt(readyStr ?? "0");
           const total = parseInt(totalStr ?? "0");
           const ok = total > 0 ? ready === total : undefined;
+          const isSel = selectedName === w.name;
           return (
             <tr
               key={w.name}
-              className={`border-b border-[#21262d] ${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22] transition-colors`}
+              onClick={() => onSelect({ kind, name: w.name, namespace: w.namespace, context, workload: w })}
+              className={`border-b border-[#21262d] cursor-pointer transition-colors ${
+                isSel
+                  ? "bg-[#1f6feb]/15 border-l-2 border-l-[#388bfd]"
+                  : `${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22]`
+              }`}
             >
               <td className="px-4 py-2.5 font-mono text-[#e6edf3] truncate max-w-[220px]" title={w.name}>{w.name}</td>
               <td className="px-3 py-2.5 font-mono text-[#388bfd] hidden sm:table-cell">{w.namespace}</td>
@@ -104,10 +114,13 @@ function WorkloadTable({ items, loading, error }: {
 }
 
 // ── Jobs table ────────────────────────────────────────────────────────────────
-function JobsTable({ items, loading, error }: {
+function JobsTable({ items, loading, error, context, selectedName, onSelect }: {
   items: JobInfo[];
   loading: boolean;
   error: string | null;
+  context: string;
+  selectedName?: string;
+  onSelect: (r: ResourceRef) => void;
 }) {
   if (error) return (
     <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md m-5 px-3 py-2">
@@ -134,8 +147,14 @@ function JobsTable({ items, loading, error }: {
         </tr>
       </thead>
       <tbody>
-        {items.map((j, idx) => (
-          <tr key={j.name} className={`border-b border-[#21262d] ${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22] transition-colors`}>
+        {items.map((j, idx) => {
+          const isSel = selectedName === j.name;
+          return (
+          <tr key={j.name}
+            onClick={() => onSelect({ kind: "Job", name: j.name, namespace: j.namespace, context })}
+            className={`border-b border-[#21262d] cursor-pointer transition-colors ${
+              isSel ? "bg-[#1f6feb]/15 border-l-2 border-l-[#388bfd]" : `${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22]`
+            }`}>
             <td className="px-4 py-2.5 font-mono text-[#e6edf3] truncate max-w-[220px]" title={j.name}>{j.name}</td>
             <td className="px-3 py-2.5 font-mono text-[#388bfd] hidden sm:table-cell">{j.namespace}</td>
             <td className="px-3 py-2.5 font-mono text-[#8b949e]">{j.completions}</td>
@@ -145,17 +164,21 @@ function JobsTable({ items, loading, error }: {
             <td className="px-3 py-2.5 text-[#8b949e] hidden md:table-cell">{j.duration}</td>
             <td className="px-3 py-2.5 text-[#8b949e]">{j.age}</td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );
 }
 
 // ── CronJobs table ────────────────────────────────────────────────────────────
-function CronJobsTable({ items, loading, error }: {
+function CronJobsTable({ items, loading, error, context, selectedName, onSelect }: {
   items: CronJobInfo[];
   loading: boolean;
   error: string | null;
+  context: string;
+  selectedName?: string;
+  onSelect: (r: ResourceRef) => void;
 }) {
   if (error) return (
     <div className="flex items-center gap-2 text-xs text-[#f85149] bg-[#f85149]/8 border border-[#f85149]/20 rounded-md m-5 px-3 py-2">
@@ -180,8 +203,14 @@ function CronJobsTable({ items, loading, error }: {
         </tr>
       </thead>
       <tbody>
-        {items.map((cj, idx) => (
-          <tr key={cj.name} className={`border-b border-[#21262d] ${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22] transition-colors`}>
+        {items.map((cj, idx) => {
+          const isSel = selectedName === cj.name;
+          return (
+          <tr key={cj.name}
+            onClick={() => onSelect({ kind: "CronJob", name: cj.name, namespace: cj.namespace, context })}
+            className={`border-b border-[#21262d] cursor-pointer transition-colors ${
+              isSel ? "bg-[#1f6feb]/15 border-l-2 border-l-[#388bfd]" : `${idx % 2 === 0 ? "bg-[#0d1117]" : "bg-[#0f1319]"} hover:bg-[#161b22]`
+            }`}>
             <td className="px-4 py-2.5 font-mono text-[#e6edf3] truncate max-w-[220px]" title={cj.name}>
               {cj.name}
               {cj.suspend && <span className="ml-2 text-[10px] text-[#e3b341] border border-[#e3b341]/30 rounded px-1">suspended</span>}
@@ -196,7 +225,8 @@ function CronJobsTable({ items, loading, error }: {
             <td className="px-3 py-2.5 text-[#8b949e] hidden md:table-cell">{cj.last_run}</td>
             <td className="px-3 py-2.5 text-[#8b949e]">{cj.age}</td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );
@@ -246,6 +276,36 @@ function OverviewPanel({ pods, deployments, daemonsets, statefulsets, jobs, cron
   );
 }
 
+// ── Drag handle to resize the detail drawer ────────────────────────────────────
+function DrawerResizer({ onWidth, onToggle }: { onWidth: (w: number) => void; onToggle: () => void }) {
+  function startDrag(e: React.MouseEvent) {
+    e.preventDefault();
+    const move = (ev: MouseEvent) => {
+      // Width = distance from the viewport's right edge to the cursor.
+      const w = Math.min(Math.max(window.innerWidth - ev.clientX, 380), window.innerWidth - 240);
+      onWidth(w);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+  return (
+    <div
+      onMouseDown={startDrag}
+      onDoubleClick={onToggle}
+      title="Drag to resize · double-click to expand"
+      className="w-1.5 shrink-0 cursor-col-resize bg-[#21262d] hover:bg-[#388bfd]/50 active:bg-[#388bfd] transition-colors"
+    />
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ClusterPage() {
   const { openBob } = useBob();
@@ -265,12 +325,14 @@ export default function ClusterPage() {
 
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
-  const [selected, setSelected] = useState<PodInfo | null>(null);
+  const [query,   setQuery]   = useState(""); // filters the current view by name/namespace
+  const [selected, setSelected] = useState<ResourceRef | null>(null);
+  const [drawerWidth, setDrawerWidth] = useState(460); // resizable detail drawer
   const [toast,    setToast]    = useState<{ text: string; ok: boolean } | null>(null);
 
   const [scaleTarget,    setScaleTarget]   = useState<{ ns: string; dep: string } | null>(null);
   const [scaleValue,     setScaleValue]    = useState(2);
-  const [confirmDelete,  setConfirmDelete] = useState<PodInfo | null>(null);
+  const [confirmDelete,  setConfirmDelete] = useState<ResourceRef | null>(null);
 
   useEffect(() => { listContexts().then(setContexts).catch(() => {}); }, []);
   useEffect(() => { listNamespaces(context).then(setNamespaces).catch(() => {}); }, [context]);
@@ -295,15 +357,20 @@ export default function ClusterPage() {
     setTimeout(() => setToast(null), ok ? 4000 : 6000);
   }
 
-  async function handleRestart(pod: PodInfo) {
-    const dep = pod.name.replace(/-[a-z0-9]+-[a-z0-9]+$/, "");
-    try { await restartDeployment(pod.namespace, dep, context); notify(`Restart triggered: ${dep}`); }
+  // Deployment name: a Deployment ref uses its own name; a Pod ref derives its
+  // owning deployment by stripping the replicaset + pod hash suffix.
+  function deploymentName(r: ResourceRef) {
+    return r.kind === "Deployment" ? r.name : r.name.replace(/-[a-z0-9]+-[a-z0-9]+$/, "");
+  }
+
+  async function handleRestart(r: ResourceRef) {
+    const dep = deploymentName(r);
+    try { await restartDeployment(r.namespace, dep, context); notify(`Restart triggered: ${dep}`); }
     catch (e: unknown) { notify(String(e), false); }
   }
 
-  function handleScale(pod: PodInfo) {
-    const dep = pod.name.replace(/-[a-z0-9]+-[a-z0-9]+$/, "");
-    setScaleTarget({ ns: pod.namespace, dep });
+  function handleScale(r: ResourceRef) {
+    setScaleTarget({ ns: r.namespace, dep: deploymentName(r) });
     setScaleValue(2);
   }
 
@@ -316,13 +383,13 @@ export default function ClusterPage() {
     } catch (e: unknown) { notify(String(e), false); }
   }
 
-  async function doDelete(pod: PodInfo) {
+  async function doDelete(r: ResourceRef) {
     try {
-      await deletePod(pod.namespace, pod.name, context);
+      await deletePod(r.namespace, r.name, context);
       setConfirmDelete(null);
-      if (selected?.name === pod.name) setSelected(null);
-      notify(`Pod ${pod.name} deleted`);
-      setPods(prev => prev.filter(p => p.name !== pod.name));
+      if (selected?.name === r.name) setSelected(null);
+      notify(`Pod ${r.name} deleted`);
+      setPods(prev => prev.filter(p => p.name !== r.name));
     } catch (e: unknown) { notify(String(e), false); }
   }
 
@@ -330,15 +397,32 @@ export default function ClusterPage() {
   const pending = pods.filter(p => p.phase === "Pending").length;
   const failed  = pods.filter(p => p.phase === "Failed").length;
 
-  // header subtitle varies by view
+  // Case-insensitive filter on name + namespace, applied to the current view.
+  const q = query.trim().toLowerCase();
+  const match = (name: string, ns: string) =>
+    q === "" || name.toLowerCase().includes(q) || ns.toLowerCase().includes(q);
+
+  const fPods         = pods.filter(p => match(p.name, p.namespace));
+  const fDeployments  = deployments.filter(w => match(w.name, w.namespace));
+  const fDaemonsets   = daemonsets.filter(w => match(w.name, w.namespace));
+  const fStatefulsets = statefulsets.filter(w => match(w.name, w.namespace));
+  const fReplicasets  = replicasets.filter(w => match(w.name, w.namespace));
+  const fJobs         = jobs.filter(j => match(j.name, j.namespace));
+  const fCronjobs     = cronjobs.filter(cj => match(cj.name, cj.namespace));
+
+  // header subtitle varies by view (shows filtered/total when searching)
+  const withQ = (shown: number, total: number, noun: string) =>
+    q ? `${shown} of ${total} ${noun} match “${query.trim()}”` : `${total} ${noun}`;
   const subtitle: Record<string, string> = {
-    pods:         `${pods.length} total · ${running} running${pending > 0 ? ` · ${pending} pending` : ""}${failed > 0 ? ` · ${failed} failed` : ""}`,
-    deployments:  `${deployments.length} deployments`,
-    daemonsets:   `${daemonsets.length} daemon sets`,
-    statefulsets: `${statefulsets.length} stateful sets`,
-    replicasets:  `${replicasets.length} replica sets`,
-    jobs:         `${jobs.length} jobs`,
-    cronjobs:     `${cronjobs.length} cron jobs`,
+    pods:         q
+      ? `${fPods.length} of ${pods.length} pods match “${query.trim()}”`
+      : `${pods.length} total · ${running} running${pending > 0 ? ` · ${pending} pending` : ""}${failed > 0 ? ` · ${failed} failed` : ""}`,
+    deployments:  withQ(fDeployments.length,  deployments.length,  "deployments"),
+    daemonsets:   withQ(fDaemonsets.length,   daemonsets.length,   "daemon sets"),
+    statefulsets: withQ(fStatefulsets.length, statefulsets.length, "stateful sets"),
+    replicasets:  withQ(fReplicasets.length,  replicasets.length,  "replica sets"),
+    jobs:         withQ(fJobs.length,         jobs.length,         "jobs"),
+    cronjobs:     withQ(fCronjobs.length,     cronjobs.length,     "cron jobs"),
     overview:     "Cluster summary",
   };
 
@@ -376,6 +460,27 @@ export default function ClusterPage() {
             <p className="text-[10px] text-[#8b949e] mt-0.5">{subtitle[view] ?? ""}</p>
           </div>
           <div className="flex items-center gap-2">
+            {view !== "overview" && (
+              <div className="relative">
+                <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#484f58]" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="Search by name…"
+                  className="w-48 text-[11px] bg-[#161b22] border border-[#30363d] rounded-md pl-7 pr-7 py-1.5 text-[#f0f6fc] placeholder:text-[#484f58] focus:outline-none focus:border-[#388bfd] transition-colors"
+                />
+                {query && (
+                  <button
+                    onClick={() => setQuery("")}
+                    title="Clear"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#484f58] hover:text-[#f0f6fc]"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            )}
             <button
               onClick={loadAll}
               className="p-1.5 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-colors"
@@ -443,6 +548,10 @@ export default function ClusterPage() {
                 <div className="flex items-center justify-center h-full text-xs text-[#8b949e] border border-dashed border-[#21262d] rounded-lg m-5">
                   No pods{namespace ? ` in "${namespace}"` : ""}.
                 </div>
+              ) : fPods.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-xs text-[#8b949e] border border-dashed border-[#21262d] rounded-lg m-5">
+                  No pods match “{query.trim()}”.
+                </div>
               ) : (
                 <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
                   <thead className="sticky top-0 z-10">
@@ -457,13 +566,13 @@ export default function ClusterPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pods.map((pod, idx) => {
+                    {fPods.map((pod, idx) => {
                       const isSelected = selected?.name === pod.name;
                       const isTroubled = pod.phase !== "Running" || pod.restarts > 0 || !pod.ready;
                       return (
                         <tr
                           key={pod.name}
-                          onClick={() => setSelected(isSelected ? null : pod)}
+                          onClick={() => setSelected(isSelected ? null : { kind: "Pod", name: pod.name, namespace: pod.namespace, context, pod })}
                           className={`border-b border-[#21262d] cursor-pointer transition-colors group ${
                             isSelected
                               ? "bg-[#1f6feb]/15 border-l-2 border-l-[#388bfd]"
@@ -507,24 +616,34 @@ export default function ClusterPage() {
                 </table>
               )
             )}
-            {view === "deployments"  && <WorkloadTable items={deployments}  loading={loading} error={error} />}
-            {view === "daemonsets"   && <WorkloadTable items={daemonsets}   loading={loading} error={error} />}
-            {view === "statefulsets" && <WorkloadTable items={statefulsets} loading={loading} error={error} />}
-            {view === "replicasets"  && <WorkloadTable items={replicasets}  loading={loading} error={error} />}
-            {view === "jobs"         && <JobsTable     items={jobs}         loading={loading} error={error} />}
-            {view === "cronjobs"     && <CronJobsTable items={cronjobs}     loading={loading} error={error} />}
+            {view === "deployments"  && <WorkloadTable items={fDeployments}  loading={loading} error={error} kind="Deployment"  context={context} selectedName={selected?.name} onSelect={setSelected} />}
+            {view === "daemonsets"   && <WorkloadTable items={fDaemonsets}   loading={loading} error={error} kind="DaemonSet"   context={context} selectedName={selected?.name} onSelect={setSelected} />}
+            {view === "statefulsets" && <WorkloadTable items={fStatefulsets} loading={loading} error={error} kind="StatefulSet" context={context} selectedName={selected?.name} onSelect={setSelected} />}
+            {view === "replicasets"  && <WorkloadTable items={fReplicasets}  loading={loading} error={error} kind="ReplicaSet"  context={context} selectedName={selected?.name} onSelect={setSelected} />}
+            {view === "jobs"         && <JobsTable     items={fJobs}         loading={loading} error={error} context={context} selectedName={selected?.name} onSelect={setSelected} />}
+            {view === "cronjobs"     && <CronJobsTable items={fCronjobs}     loading={loading} error={error} context={context} selectedName={selected?.name} onSelect={setSelected} />}
           </div>
 
-          {/* Pod detail panel */}
-          {selected && view === "pods" && (
-            <div className="w-[340px] shrink-0 overflow-hidden border-l border-[#21262d]">
-              <PodDetailPanel
-                pod={selected}
-                onClose={() => setSelected(null)}
-                onRestart={p => handleRestart(p)}
-                onScale={p => handleScale(p)}
-                onDelete={p => setConfirmDelete(p)}
+          {/* Resource detail drawer — YAML for every kind, logs/exec for pods.
+              Left edge is a drag handle; double-click toggles wide/normal. */}
+          {selected && view !== "overview" && (
+            <div className="shrink-0 flex overflow-hidden" style={{ width: drawerWidth }}>
+              <DrawerResizer
+                onWidth={setDrawerWidth}
+                onToggle={() => setDrawerWidth(w =>
+                  w > 620 ? 460 : Math.min(900, window.innerWidth - 300)
+                )}
               />
+              <div className="flex-1 min-w-0 overflow-hidden">
+                <ResourceDetailDrawer
+                  resource={selected}
+                  onClose={() => setSelected(null)}
+                  onRestart={handleRestart}
+                  onScale={handleScale}
+                  onDelete={setConfirmDelete}
+                  onAskBob={r => openBob({ namespace: r.namespace, pod: r.name, k8sContext: context })}
+                />
+              </div>
             </div>
           )}
         </div>

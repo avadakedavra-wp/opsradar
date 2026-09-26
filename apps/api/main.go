@@ -28,6 +28,13 @@ import (
 const shutdownGrace = 30 * time.Second
 
 func main() {
+	// Load credentials saved via the Settings UI / GitHub OAuth (~/.opsradar/.env)
+	// into the environment FIRST, so the AI backend, GitHub PR creation, and API
+	// key auth below all see them. Shell env still wins for any explicit override.
+	if n := handlers.LoadStoredEnv(); n > 0 {
+		log.Printf("loaded %d stored setting(s) from ~/.opsradar/.env", n)
+	}
+
 	// Store — defaults to a path under the user's home directory so the
 	// binary just works when run directly (e.g. `./opsradar start` on a
 	// laptop). Container/Helm deployments set STORE_PATH explicitly to a
@@ -96,6 +103,11 @@ func main() {
 
 	api := app.Group("/", middleware.APIKeyAuth())
 	handlers.RegisterRoutes(api, db, k8sMgr, agentBackend, prGen, appCtx, &scanWG)
+
+	// Interactive pod exec runs over a WebSocket, registered on the raw app
+	// because a browser WS handshake can't carry the X-API-Key header (it
+	// self-authenticates via ?key= when OPS_RADAR_API_KEY is set).
+	handlers.RegisterExecWebSocket(app, k8sMgr)
 
 	port := getEnv("PORT", "8080")
 	go func() {

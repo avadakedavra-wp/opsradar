@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +17,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/yaml"
 )
 
@@ -325,6 +326,122 @@ func (c *Client) DeletePod(ctx context.Context, namespace, pod string) error {
 	return c.kube.CoreV1().Pods(namespace).Delete(ctx, pod, metav1.DeleteOptions{})
 }
 
+// kindToGVR maps the resource kinds OpsRadar surfaces to their group/version/resource.
+// A fixed table is deliberate: it's the exact set the Cluster page lists, and avoids
+// fragile discovery round-trips just to render a YAML view.
+var kindToGVR = map[string]schema.GroupVersionResource{
+	"Pod":                     {Group: "", Version: "v1", Resource: "pods"},
+	"ConfigMap":               {Group: "", Version: "v1", Resource: "configmaps"},
+	"Secret":                  {Group: "", Version: "v1", Resource: "secrets"},
+	"Service":                 {Group: "", Version: "v1", Resource: "services"},
+	"Deployment":              {Group: "apps", Version: "v1", Resource: "deployments"},
+	"DaemonSet":               {Group: "apps", Version: "v1", Resource: "daemonsets"},
+	"StatefulSet":             {Group: "apps", Version: "v1", Resource: "statefulsets"},
+	"ReplicaSet":              {Group: "apps", Version: "v1", Resource: "replicasets"},
+	"Job":                     {Group: "batch", Version: "v1", Resource: "jobs"},
+	"CronJob":                 {Group: "batch", Version: "v1", Resource: "cronjobs"},
+	"Ingress":                 {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
+	"HorizontalPodAutoscaler": {Group: "autoscaling", Version: "v2", Resource: "horizontalpodautoscalers"},
+}
+
+// execResizeQueue adapts a channel of terminal sizes to
+// remotecommand.TerminalSizeQueue. Next blocks until a resize arrives and
+// returns nil (ending the queue) once the channel is closed.
+type execResizeQueue struct {
+	ch <-chan remotecommand.TerminalSize
+}
+
+func (q *execResizeQueue) Next() *remotecommand.TerminalSize {
+	size, ok := <-q.ch
+	if !ok {
+		return nil
+	}
+	return &size
+}
+
+// ExecStream runs cmd in a pod container over SPDY, wiring stdin/stdout and an
+// optional terminal-resize channel. With tty=true, stderr is merged into stdout
+// (the kubelet requires stderr be unset for TTY sessions).
+func (c *Client) ExecStream(
+	ctx context.Context,
+	namespace, pod, container string,
+	cmd []string,
+	stdin io.Reader,
+	stdout, stderr io.Writer,
+	tty bool,
+	resize <-chan remotecommand.TerminalSize,
+) error {
+	req := c.kube.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(pod).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container,
+			Command:   cmd,
+			Stdin:     stdin != nil,
+			Stdout:    stdout != nil,
+			Stderr:    !tty && stderr != nil,
+			TTY:       tty,
+		}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(c.restCfg, "POST", req.URL())
+	if err != nil {
+		return fmt.Errorf("init exec: %w", err)
+	}
+
+	opts := remotecommand.StreamOptions{
+		Stdin:  stdin,
+		Stdout: stdout,
+		Tty:    tty,
+	}
+	if !tty {
+		opts.Stderr = stderr
+	}
+	if tty && resize != nil {
+		opts.TerminalSizeQueue = &execResizeQueue{ch: resize}
+	}
+	return executor.StreamWithContext(ctx, opts)
+}
+
+// GetResourceYAML fetches a single resource and returns its manifest as YAML.
+// namespace may be empty for cluster-scoped kinds. Noisy server-managed fields
+// (managedFields) are stripped so the output reads like `kubectl get -o yaml`.
+func (c *Client) GetResourceYAML(ctx context.Context, kind, namespace, name string) (string, error) {
+	gvr, ok := kindToGVR[kind]
+	if !ok {
+		return "", fmt.Errorf("unsupported kind %q", kind)
+	}
+
+	dyn, err := dynamic.NewForConfig(c.restCfg)
+	if err != nil {
+		return "", fmt.Errorf("dynamic client: %w", err)
+	}
+
+	var ri dynamic.ResourceInterface
+	if namespace != "" {
+		ri = dyn.Resource(gvr).Namespace(namespace)
+	} else {
+		ri = dyn.Resource(gvr)
+	}
+
+	obj, err := ri.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	// Trim server-side clutter that obscures the real spec.
+	unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
+	unstructured.RemoveNestedField(obj.Object, "metadata", "generation")
+	unstructured.RemoveNestedField(obj.Object, "metadata", "resourceVersion")
+
+	data, err := yaml.Marshal(obj.Object)
+	if err != nil {
+		return "", fmt.Errorf("marshal yaml: %w", err)
+	}
+	return string(data), nil
+}
+
 // ApplyYAML applies a full Kubernetes YAML manifest using server-side apply.
 func (c *Client) ApplyYAML(ctx context.Context, yamlDoc string) error {
 	dyn, err := dynamic.NewForConfig(c.restCfg)
@@ -377,8 +494,8 @@ func (c *Client) ApplyYAML(ctx context.Context, yamlDoc string) error {
 
 // ApplyPatch detects the diff_patch format and applies it appropriately:
 //   - Full manifest (has apiVersion+kind)   → ApplyYAML directly
-//   - Unified diff (starts with --- or @@)  → apply diff to live manifest then ApplyYAML
-//   - Partial JSON/YAML fragment            → strategic merge patch onto the live deployment
+//   - Legacy unified diff (--- or @@)        → rejected with an actionable error
+//   - Strategic merge patch fragment (JSON)  → strategic merge patch onto the live deployment
 func (c *Client) ApplyPatch(ctx context.Context, namespace, deployment, diffPatch string) error {
 	patch := strings.TrimSpace(diffPatch)
 
@@ -387,30 +504,22 @@ func (c *Client) ApplyPatch(ctx context.Context, namespace, deployment, diffPatc
 		return c.ApplyYAML(ctx, patch)
 	}
 
-	// For cases 2 and 3 we need the live deployment.
+	// Case 2: legacy unified diff. We no longer generate these — Bob now emits a
+	// strategic merge patch. A fuzzy, line-addressed diff written against an
+	// idealized manifest cannot be applied reliably to the live object's own
+	// serialization (line numbers and context never align), so applying it either
+	// corrupts the manifest or fails with a cryptic YAML error. Fail honestly with
+	// an actionable message instead.
+	if strings.HasPrefix(patch, "---") || strings.Contains(patch, "\n@@") {
+		return fmt.Errorf("this finding uses a legacy diff format that can't be applied safely — re-run the scan to regenerate an applyable patch")
+	}
+
+	// Case 3: strategic merge patch fragment. We need the live deployment only to
+	// resolve the container name when the fragment is container-level.
 	dep, err := c.kube.AppsV1().Deployments(namespace).Get(ctx, deployment, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get deployment: %w", err)
 	}
-	dep.ManagedFields = nil
-	dep.ResourceVersion = ""
-	dep.APIVersion = "apps/v1"
-	dep.Kind = "Deployment"
-
-	// Case 2: unified diff.
-	if strings.HasPrefix(patch, "---") || strings.Contains(patch, "\n@@") {
-		raw, err := yaml.Marshal(dep)
-		if err != nil {
-			return fmt.Errorf("marshal deployment: %w", err)
-		}
-		patched, err := applyUnifiedDiff(string(raw), patch)
-		if err != nil {
-			return fmt.Errorf("apply diff: %w", err)
-		}
-		return c.ApplyYAML(ctx, patched)
-	}
-
-	// Case 3: partial JSON/YAML fragment — build a strategic merge patch.
 	mergePatch, err := buildFragmentPatch(patch, dep.Spec.Template.Spec.Containers)
 	if err != nil {
 		return fmt.Errorf("build merge patch: %w", err)
@@ -510,7 +619,6 @@ func labelsMatch(podLabels, selector map[string]string) bool {
 	return true
 }
 
-// applyUnifiedDiff applies a simplified unified diff to original text.
 // buildFragmentPatch wraps a partial JSON/YAML fragment into a strategic merge
 // patch for a Deployment. Fragments that have container-level keys (resources,
 // env, livenessProbe, readinessProbe, command, args) are nested under the first
@@ -533,6 +641,18 @@ func buildFragmentPatch(fragment string, containers []corev1.Container) ([]byte,
 		return fragJSON, nil
 	}
 
+	// Bare Deployment.spec-level keys (e.g. {"replicas":2}) — wrap under spec,
+	// NOT under a container, or a strategic merge would corrupt the pod template.
+	specLevel := map[string]bool{
+		"replicas": true, "strategy": true, "selector": true, "minReadySeconds": true,
+		"revisionHistoryLimit": true, "paused": true, "progressDeadlineSeconds": true,
+	}
+	for k := range frag {
+		if specLevel[k] {
+			return json.Marshal(map[string]interface{}{"spec": frag})
+		}
+	}
+
 	// Container-level keys: wrap under spec.template.spec.containers[name].
 	firstName := ""
 	if len(containers) > 0 {
@@ -552,71 +672,6 @@ func buildFragmentPatch(fragment string, containers []corev1.Container) ([]byte,
 		},
 	}
 	return json.Marshal(patch)
-}
-
-func applyUnifiedDiff(original, diff string) (string, error) {
-	if strings.TrimSpace(diff) == "" {
-		return original, nil
-	}
-	origLines := strings.Split(original, "\n")
-	result := make([]string, 0, len(origLines))
-	diffLines := strings.Split(diff, "\n")
-
-	origIdx := 0
-	i := 0
-	for i < len(diffLines) {
-		line := diffLines[i]
-
-		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
-			i++
-			continue
-		}
-
-		if strings.HasPrefix(line, "@@") {
-			// Parse: @@ -start[,count] +start[,count] @@
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				i++
-				continue
-			}
-			origSpec := strings.TrimPrefix(fields[1], "-")
-			parts := strings.SplitN(origSpec, ",", 2)
-			origStart, err := strconv.Atoi(parts[0])
-			if err != nil {
-				i++
-				continue
-			}
-			// Copy unchanged lines up to the hunk.
-			for origIdx < origStart-1 && origIdx < len(origLines) {
-				result = append(result, origLines[origIdx])
-				origIdx++
-			}
-			i++
-			continue
-		}
-
-		if strings.HasPrefix(line, "+") {
-			result = append(result, line[1:])
-			i++
-		} else if strings.HasPrefix(line, "-") {
-			origIdx++
-			i++
-		} else if strings.HasPrefix(line, " ") {
-			if origIdx < len(origLines) {
-				result = append(result, origLines[origIdx])
-				origIdx++
-			}
-			i++
-		} else {
-			i++
-		}
-	}
-	// Append any remaining original lines.
-	for origIdx < len(origLines) {
-		result = append(result, origLines[origIdx])
-		origIdx++
-	}
-	return strings.Join(result, "\n"), nil
 }
 
 // WorkloadInfo is a generic summary row for non-pod workload types.
