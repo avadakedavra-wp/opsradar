@@ -95,7 +95,7 @@ export default function LandingPage() {
               {t.hero.cta}
             </a>
             <a
-              href="#product"
+              href="#showcase"
               className="inline-flex items-center px-5 py-2.5 rounded-xl font-semibold text-sm border transition-colors"
               style={{ border: "1px solid var(--border)", color: "var(--text)" }}
             >
@@ -106,6 +106,28 @@ export default function LandingPage() {
         </div>
         <div className="space-y-4">
           <Terminal />
+        </div>
+      </section>
+
+      {/* ── PRODUCT SHOWCASE ───────────────────────────────── */}
+      <section className="border-y py-16" id="showcase" style={{ borderColor: "var(--border)", background: "var(--bg-subtle)" }}>
+        <div className="max-w-6xl mx-auto px-4">
+          <h2 className="text-2xl font-bold mb-1" style={{ color: "var(--text)" }}>See it in action</h2>
+          <p className="mb-6" style={{ color: "var(--text-muted)" }}>
+            Scan a live cluster, let Bob write the fix, and ship it — end to end.
+          </p>
+          <div
+            className="rounded-2xl border overflow-hidden"
+            style={{ borderColor: "var(--border)", background: "#010409" }}
+          >
+            <iframe
+              src="/showcase.html"
+              title="OpsRadar product showcase"
+              loading="lazy"
+              className="w-full block"
+              style={{ border: 0, aspectRatio: "16 / 9" }}
+            />
+          </div>
         </div>
       </section>
 
